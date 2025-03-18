@@ -1,0 +1,11 @@
+.DS_Store
+
+.idea
+.vs
+
+bin
+obj
+
+test-results
+
+*.user

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="CSharp.FSharp" Version="0.1.0" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="Library.fs" />
+    </ItemGroup>
+</Project>
