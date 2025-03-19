@@ -5,6 +5,7 @@
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
     <ItemGroup>
+        <PackageReference Include="FsUnit.xUnit" Version="7.0.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
         <PackageReference Include="xunit" Version="2.9.3" />
         <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
@@ -12,5 +13,9 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\..\src\Fini\Fini.fsproj" />
+    </ItemGroup>
+    <ItemGroup>
+      <Compile Include="parser-tests.fs" />
+      <Compile Include="take-until-tests.fs" />
     </ItemGroup>
 </Project>

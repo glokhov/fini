@@ -7,6 +7,11 @@
         <PackageReference Include="CSharp.FSharp" Version="0.1.0" />
     </ItemGroup>
     <ItemGroup>
-        <Compile Include="Library.fs" />
+        <Compile Include="assembly.fs" />
+        <Compile Include="io.fs" />
+        <Compile Include="regex.fs" />
+        <Compile Include="take-until.fs" />
+        <Compile Include="parser.fs" />
+        <Compile Include="ini.fs" />
     </ItemGroup>
 </Project>
