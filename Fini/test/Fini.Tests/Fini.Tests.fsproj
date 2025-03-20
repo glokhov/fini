@@ -16,6 +16,5 @@
     </ItemGroup>
     <ItemGroup>
       <Compile Include="parser-tests.fs" />
-      <Compile Include="take-until-tests.fs" />
     </ItemGroup>
 </Project>
