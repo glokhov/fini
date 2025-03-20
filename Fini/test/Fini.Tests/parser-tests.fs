@@ -6,22 +6,6 @@ open Parser
 open Xunit
 
 [<Fact>]
-let ``if empty string ParseLine returns none`` () =
-    let parameter =
-        match "" with
-        | ParseLine line -> Some line
-        | _ -> None
-    parameter |> should equal (Line.Empty |> Some)
-
-[<Fact>]
-let ``if empty string ParseLine returns none spaces`` () =
-    let parameter =
-        match " " with
-        | ParseLine line -> Some line
-        | _ -> None
-    parameter |> should equal (Line.Empty |> Some)
-
-[<Fact>]
 let ``if key missing ParseLine returns none`` () =
     let parameter =
         match "=bar" with
@@ -118,26 +102,6 @@ let ``if open and close brackets present ParseLine returns some section spaces``
     section |> should equal ("foo" |> Section |> Some)
 
 [<Fact>]
-let ``if empty string removeComment returns empty string`` () =
-    let noComment = removeComment ""
-    noComment |> should equal ""
-
-[<Fact>]
-let ``if no comment removeComment returns original string`` () =
-    let noComment = removeComment "foo"
-    noComment |> should equal "foo"
-
-[<Fact>]
-let ``if starts with comment removeComment returns empty string`` () =
-    let noComment = removeComment "# foo"
-    noComment |> should equal ""
-
-[<Fact>]
-let ``if contains comment removeComment removes comment`` () =
-    let noComment = removeComment "foo # bar"
-    noComment |> should equal "foo"
-
-[<Fact>]
 let ``if text is a section parseLine returns ok section`` () =
     let line = parseLine (1, "[foo]")
     line |> should equal ("foo" |> Section |> Result<Line, string>.Ok)
@@ -146,16 +110,6 @@ let ``if text is a section parseLine returns ok section`` () =
 let ``if text is a parameter parseLine returns ok parameter`` () =
     let line = parseLine (1, "foo=bar")
     line |> should equal (("foo", "bar") |> Parameter |> Result<Line, string>.Ok)
-
-[<Fact>]
-let ``if text is a white space parseLine returns ok empty`` () =
-    let line = parseLine (1, "")
-    line |> should equal (Line.Empty |> Result<Line, string>.Ok)
-
-[<Fact>]
-let ``if text is a white space parseLine returns ok empty spaces`` () =
-    let line = parseLine (1, " ")
-    line |> should equal (Line.Empty |> Result<Line, string>.Ok)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err`` () =
@@ -204,14 +158,49 @@ let ``if cannot parse parseLine returns err variant 7`` () =
     line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
 
 [<Fact>]
-let ``if ini valid parseLines returns ok line list`` () =
+let ``if empty string removeComment returns empty string`` () =
+    let noComment = removeComment (1, "")
+    noComment |> should equal (1, "")
+
+[<Fact>]
+let ``if no comment removeComment returns original string`` () =
+    let noComment = removeComment (2, "foo")
+    noComment |> should equal (2, "foo")
+
+[<Fact>]
+let ``if starts with comment removeComment returns empty string`` () =
+    let noComment = removeComment (3, "# foo")
+    noComment |> should equal (3, "")
+
+[<Fact>]
+let ``if contains comment removeComment removes comment`` () =
+    let noComment = removeComment (4, "foo # bar")
+    noComment |> should equal (4, "foo")
+
+[<Fact>]
+let ``if not whitespace isNotWhiteSpace returns true`` () =
+    let result = isNotWhiteSpace (1, "foo")
+    result |> should be True
+
+[<Fact>]
+let ``if empty string isNotWhiteSpace returns false`` () =
+    let result = isNotWhiteSpace (1, "")
+    result |> should be False
+
+[<Fact>]
+let ``if whitespace isNotWhiteSpace returns false`` () =
+    let result = isNotWhiteSpace (1, " ")
+    result |> should be False
+
+[<Fact>]
+let ``if ini valid parse returns ok line list`` () =
     let result =
         seq {
             "[foo]"
             "# comment"
             "foo=bar"
         }
-        |> parseLines
+        |> parse
 
     let list =
         match result with
@@ -219,10 +208,10 @@ let ``if ini valid parseLines returns ok line list`` () =
         | Error _ -> List.Empty
 
     result.IsOk |> should be True
-    list.Length |> should equal 3
+    list.Length |> should equal 2
 
 [<Fact>]
-let ``if ini is invalid parseLines returns error`` () =
+let ``if ini is invalid parse returns error`` () =
     let result =
         seq {
             "[foo]"
@@ -231,6 +220,6 @@ let ``if ini is invalid parseLines returns error`` () =
             "bar"
             "key=value"
         }
-        |> parseLines
+        |> parse
 
     result.IsError |> should be True

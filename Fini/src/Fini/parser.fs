@@ -17,55 +17,39 @@ let SectionRegex: string = @"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$"
 let ParameterRegex: string = @"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$"
 
 type Line =
-    | Empty
     | Section of string
     | Parameter of (string * string)
 
-let removeComment (input: string) : string =
-    match input with
-    | ParseRegex CommentRegex [ head; _; _ ] -> head
-    | _ -> input
-
-let (|ParseEmptySpace|_|) (input: string) : unit option =
-    match input with
-    | ParseRegex EmptySpaceRegex _ -> Some()
-    | _ -> None
-
-let (|ParseSection|_|) (input: string) : string option =
-    match input with
+let (|ParseSection|_|) (txt: string) : string option =
+    match txt with
     | ParseRegex SectionRegex [ _; name; _ ] -> Some name
     | _ -> None
 
-let (|ParseParameter|_|) (input: string) : (string * string) option =
-    match input with
-    | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> Some(key, value)
+let (|ParseParameter|_|) (txt: string) : (string * string) option =
+    match txt with
+    | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> Some <| (key, value)
     | _ -> None
 
-let (|ParseLine|_|) (input: string) : Line option =
-    match removeComment input with
-    | ParseEmptySpace _ -> Some Empty
-    | ParseSection section -> Some(Section section)
-    | ParseParameter parameter -> Some(Parameter parameter)
+let (|ParseLine|_|) (txt: string) : Line option =
+    match txt with
+    | ParseSection section -> Some <| Section section
+    | ParseParameter parameter -> Some <| Parameter parameter
     | _ -> None
 
-let parseLine (index: int, text: string) : Result<Line, string> =
-    match text with
+let parseLine (idx: int, txt: string) : Result<Line, string> =
+    match txt with
     | ParseLine line -> Ok line
-    | _ -> Error $"Cannot parse line {index + 1}: {text}."
+    | _ -> Error $"Cannot parse line {idx + 1}: {txt}."
 
-let parseLines (lines: string seq) : Result<Line list, string> =
-    let lines =
-        lines
-        |> Seq.indexed
-        |> Seq.map parseLine
-        |> Seq.takeUntil _.IsError
-        |> List.ofSeq
-        |> List.rev
+let removeComment (idx: int, txt: string) : int * string =
+    match txt with
+    | ParseRegex CommentRegex [ txt; _; _ ] -> (idx, txt)
+    | _ -> (idx, txt)
 
-    let rec loop (lines: Result<Line, string> list) (acc: Line list) : Result<Line list, string> =
-        match lines with
-        | [] -> Ok acc
-        | Error err :: _ -> Error err
-        | Ok line :: tail -> loop tail (line :: acc)
+let isNotWhiteSpace (_: int, txt: string) : bool =
+    match txt with
+    | ParseRegex EmptySpaceRegex _ -> false
+    | _ -> true
 
-    loop lines List.Empty
+let parse (lines: string seq) : Result<Line list, string> =
+    lines |> Seq.indexed |> Seq.map removeComment |> Seq.filter isNotWhiteSpace |> Seq.map parseLine |> Seq.takeUntil _.IsError |> List.ofSeq |> List.rev |> Result.combine

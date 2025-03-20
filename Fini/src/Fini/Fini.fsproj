@@ -11,7 +11,8 @@
         <Compile Include="assembly.fs" />
         <Compile Include="io.fs" />
         <Compile Include="regex.fs" />
+        <Compile Include="result.fs" />
         <Compile Include="parser.fs" />
-        <Compile Include="ini.fs" />
+        <Compile Include="config.fs" />
     </ItemGroup>
 </Project>
