@@ -1,9 +1,9 @@
 module internal Result
 
 let combine (results: Result<'T, 'U> list) : Result<'T list, 'U> =
-    let rec loop (results: Result<'T, 'U> list) (acc: 'T list) : Result<'T list, 'U> =
+    let rec loop results acc =
         match results with
         | [] -> Ok acc
-        | Error err :: _ -> Error err
+        | Error error :: _ -> Error error
         | Ok head :: tail -> loop tail (head :: acc)
     loop results List.Empty

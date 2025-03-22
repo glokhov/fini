@@ -1,55 +1,65 @@
 module internal Parser
 
 open Microsoft.FSharp.Collections
-open Regex
+open System.Text.RegularExpressions
 open TakeUntil
-
-[<Literal>]
-let CommentRegex: string = @"(.*?)(\s*#\s*)(.*)"
-
-[<Literal>]
-let EmptySpaceRegex: string = @"^\s*$"
-
-[<Literal>]
-let SectionRegex: string = @"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$"
-
-[<Literal>]
-let ParameterRegex: string = @"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$"
+open Types
 
 type Line =
-    | Section of string
-    | Parameter of (string * string)
+    | Section of Section
+    | Parameter of Parameter
 
-let (|ParseSection|_|) (txt: string) : string option =
-    match txt with
+let SectionRegex: Regex = Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
+
+let ParameterRegex: Regex = Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
+
+let CommentRegex: Regex = Regex(@"(.*?)(\s*#\s*)(.*)", RegexOptions.Compiled)
+
+let EmptySpaceRegex: Regex = Regex(@"^\s*$", RegexOptions.Compiled)
+
+let (|ParseRegex|_|) (regex: Regex) (input: string) : string list option =
+    match regex.Match(input) with
+    | m when m.Success -> Some(List.tail [ for g in m.Groups -> g.Value ])
+    | _ -> None
+
+let (|ParseSection|_|) (text: string) : string option =
+    match text with
     | ParseRegex SectionRegex [ _; name; _ ] -> Some name
     | _ -> None
 
-let (|ParseParameter|_|) (txt: string) : (string * string) option =
-    match txt with
+let (|ParseParameter|_|) (text: string) : (string * string) option =
+    match text with
     | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> Some <| (key, value)
     | _ -> None
 
-let (|ParseLine|_|) (txt: string) : Line option =
-    match txt with
+let (|ParseLine|_|) (text: string) : Line option =
+    match text with
     | ParseSection section -> Some <| Section section
     | ParseParameter parameter -> Some <| Parameter parameter
     | _ -> None
 
-let parseLine (idx: int, txt: string) : Result<Line, string> =
-    match txt with
+let parseLine (index: int, text: string) : Result<Line, string> =
+    match text with
     | ParseLine line -> Ok line
-    | _ -> Error $"Cannot parse line {idx + 1}: {txt}."
+    | _ -> Error $"Cannot parse line {index + 1}: {text}."
 
-let removeComment (idx: int, txt: string) : int * string =
-    match txt with
-    | ParseRegex CommentRegex [ txt; _; _ ] -> (idx, txt)
-    | _ -> (idx, txt)
+let removeComment (index: int, text: string) : int * string =
+    match text with
+    | ParseRegex CommentRegex [ text; _; _ ] -> (index, text)
+    | _ -> (index, text)
 
-let isNotWhiteSpace (_: int, txt: string) : bool =
-    match txt with
+let isNotWhiteSpace (_: int, text: string) : bool =
+    match text with
     | ParseRegex EmptySpaceRegex _ -> false
     | _ -> true
 
 let parse (lines: string seq) : Result<Line list, string> =
-    lines |> Seq.indexed |> Seq.map removeComment |> Seq.filter isNotWhiteSpace |> Seq.map parseLine |> Seq.takeUntil _.IsError |> List.ofSeq |> List.rev |> Result.combine
+    lines
+    |> Seq.indexed
+    |> Seq.map removeComment
+    |> Seq.filter isNotWhiteSpace
+    |> Seq.map parseLine
+    |> Seq.takeUntil _.IsError
+    |> Seq.toList
+    |> List.rev
+    |> Result.combine

@@ -2,7 +2,6 @@ module Parser.Tests
 
 open Microsoft.FSharp.Core
 open FsUnit
-open Parser
 open Xunit
 
 [<Fact>]

@@ -1,34 +1,52 @@
 namespace Fini
 
-type KeyValueMap = Map<int * string * string, string>
+open Lines
+open Types
 
-type Config(map: KeyValueMap) =
+type Config(map: Map<MapKey, Value>) =
     new() = Config(Map.empty)
-    member _.Map = map
+    member internal _.Map: Map<MapKey, Value> = map
 
 module Config =
 
-    open System
+    let addParameter (parameter: Parameter) (section: Section) (map: Map<MapKey, Value>) : Map<MapKey, Value> =
+        map.Add((section, fst parameter), snd parameter)
 
-    let internal addParameter (param: string * string) (idx: int) (section: string) (map: KeyValueMap) : KeyValueMap =
-        map.Add((idx, section, fst param), snd param)
+    let fromParserLines (lines: Parser.Line list) : Result<Config, string> =
+        let rec loop lines section map =
+            match lines with
+            | [] -> Ok <| Config map
+            | Parser.Section section :: tail -> loop tail section map
+            | Parser.Parameter parameter :: tail -> loop tail section (addParameter parameter section map)
+        loop lines "" Map.empty
 
-    let rec internal fromParserLinesLoop (lines: Parser.Line list) (idx: int) (section: string) (map: KeyValueMap) : Result<Config, string> =
-        match lines with
-        | [] -> Ok <| Config(map)
-        | Parser.Section section :: tail -> fromParserLinesLoop tail (idx + 1) section map
-        | Parser.Parameter param :: tail -> fromParserLinesLoop tail idx section (addParameter param idx section map)
+    let fromLines (contents: string seq) : Result<Config, string> =
+        Parser.parse contents |> Result.bind fromParserLines
 
-    let internal fromParserLines (lines: Parser.Line list) : Result<Config, string> =
-        fromParserLinesLoop lines 0 "" Map.empty
+    let fromString (contents: string) : Result<Config, string> = contents |> splitLines |> fromLines
 
-    let internal fromLines (lines: string seq) : Result<Config, string> =
-        Parser.parse lines |> Result.bind fromParserLines
+    let cleanUp (lines: string list) : string list =
+        let rec loop lines acc =
+            match lines with
+            | [] -> acc
+            | "[]" :: tail -> loop tail acc
+            | head :: tail -> loop tail (head :: acc)
+        loop lines List.empty
 
-    let fromString (str: string) : Result<Config, string> =
-        str.Split([| "\n"; "\r\n" |], StringSplitOptions.None) |> fromLines
+    let sectionLines (lines: (MapKey * Value) seq) : string seq =
+        let parameters = lines |> Seq.map parameter |> Seq.toList
+        let section = lines |> Seq.head |> sectionName |> formatSection |> List.singleton
+        let rec loop parameters acc =
+            match parameters with
+            | [] -> acc
+            | head :: tail -> loop tail ((head |> formatParameter) :: acc)
+        loop parameters section |> cleanUp |> List.toSeq
 
-    let fromFile (path: string) : Result<Config, string> =
-        match IO.readLines path with
-        | Error exn -> Error exn.Message
-        | Ok lines -> fromLines lines
+    let toLines (config: Config) : string seq =
+        config.Map
+        |> Map.toSeq
+        |> Seq.groupBy sectionName
+        |> Seq.map snd
+        |> Seq.collect sectionLines
+
+    let toString (config: Config) : string = config |> toLines |> joinLines
