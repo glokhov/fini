@@ -61,5 +61,4 @@ let parse (lines: string seq) : Result<Line list, string> =
     |> Seq.map parseLine
     |> Seq.takeUntil _.IsError
     |> Seq.toList
-    |> List.rev
     |> Result.combine

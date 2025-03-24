@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
         <LangVersion>preview</LangVersion>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="CSharp.FSharp" Version="0.1.0" />
+        <PackageReference Include="FInvoke" Version="0.2.0" />
         <PackageReference Include="TakeUntil" Version="0.1.1" />
     </ItemGroup>
     <ItemGroup>

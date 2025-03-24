@@ -3,7 +3,7 @@ module internal IO
 open System
 open System.IO
 open System.Text
-open CSharp
+open FInvoke.Result
 
 let readLines: string -> Result<string seq, Exception> = invoke File.ReadLines
 

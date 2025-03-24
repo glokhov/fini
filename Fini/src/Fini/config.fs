@@ -15,13 +15,12 @@ module Config =
     let fromParserLines (lines: Parser.Line list) : Result<Config, string> =
         let rec loop lines section map =
             match lines with
-            | [] -> Ok <| Config map
+            | [] -> Config map |> Ok
             | Parser.Section section :: tail -> loop tail section map
             | Parser.Parameter parameter :: tail -> loop tail section (addParameter parameter section map)
         loop lines "" Map.empty
 
-    let fromLines (contents: string seq) : Result<Config, string> =
-        Parser.parse contents |> Result.bind fromParserLines
+    let fromLines (contents: string seq) : Result<Config, string> = contents |> Parser.parse |> Result.bind fromParserLines
 
     let fromString (contents: string) : Result<Config, string> = contents |> splitLines |> fromLines
 
@@ -33,20 +32,17 @@ module Config =
             | head :: tail -> loop tail (head :: acc)
         loop lines List.empty
 
-    let sectionLines (lines: (MapKey * Value) seq) : string seq =
-        let parameters = lines |> Seq.map parameter |> Seq.toList
-        let section = lines |> Seq.head |> sectionName |> formatSection |> List.singleton
+    let writeSection (map: (MapKey * Value) seq) : string seq =
+        let parameters = map |> Seq.map parameter |> Seq.toList
+        let section = map |> Seq.head |> section |> formatSection |> List.singleton
         let rec loop parameters acc =
             match parameters with
             | [] -> acc
             | head :: tail -> loop tail ((head |> formatParameter) :: acc)
-        loop parameters section |> cleanUp |> List.toSeq
+        loop parameters section |> cleanUp |> Seq.ofList
 
-    let toLines (config: Config) : string seq =
-        config.Map
-        |> Map.toSeq
-        |> Seq.groupBy sectionName
-        |> Seq.map snd
-        |> Seq.collect sectionLines
+    let groupSections (config: Config) : (MapKey * Value) seq seq = config.Map |> Map.toSeq |> Seq.groupBy section |> Seq.map snd
+
+    let toLines (config: Config) : string seq = config |> groupSections |> Seq.collect writeSection
 
     let toString (config: Config) : string = config |> toLines |> joinLines
