@@ -9,6 +9,12 @@ type Config(map: Map<MapKey, Value>) =
 
 module Config =
 
+    let value (config: Config) (section: string) (key: string) : string option =
+        config.Map.TryFind (section, key)
+
+    let globalValue (config: Config) (key: string) : string option =
+        value config "" key
+
     let addParameter (parameter: Parameter) (section: Section) (map: Map<MapKey, Value>) : Map<MapKey, Value> =
         map.Add((section, fst parameter), snd parameter)
 

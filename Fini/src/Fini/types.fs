@@ -1,4 +1,4 @@
-module Types
+module internal Types
 
 type Section = string
 
@@ -12,9 +12,9 @@ type MapKey = Section * Key
 
 let section (x: MapKey * Value) : Section = x |> fst |> fst
 
-let parameterName (x: MapKey * Value) : Key = x |> fst |> snd
+let key (x: MapKey * Value) : Key = x |> fst |> snd
 
-let parameter (x: MapKey * Value) : Parameter = parameterName x, snd x
+let parameter (x: MapKey * Value) : Parameter = key x, snd x
 
 let formatSection (scn: Section) : string = $"[{scn}]"
 
