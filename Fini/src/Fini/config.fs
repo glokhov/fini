@@ -6,8 +6,11 @@ type Config(map: Map<MKey, Value>) =
     new() = Config(Map.empty)
     
     static member Empty : Config = Config(Map.empty)
-    static member ReadLines(contents: string seq) : Result<Config, string> = contents |> Reader.fromLines |> Result.map (fun map -> map |> Config)
-    static member ReadString(contents: string) : Result<Config, string> =  contents |> Reader.fromString |> Result.map (fun map -> map |> Config)
+    static member FromLines(contents: string seq) : Result<Config, string> = contents |> Reader.fromLines |> Result.map (fun map -> map |> Config)
+    static member FromString(contents: string) : Result<Config, string> = contents |> Reader.fromString |> Result.map (fun map -> map |> Config)
+
+    member _.AppendLines(contents: string seq) : Result<Config, string> = contents |> Reader.appendLines map |> Result.map (fun map -> map |> Config)
+    member _.AppendString(contents: string) : Result<Config, string> = contents |> Reader.appendString map |> Result.map (fun map -> map |> Config)
 
     member _.IsEmpty: bool = map.IsEmpty
     member _.ContainsKey(section: string, key: string) : bool = map.ContainsKey(section, key)
@@ -17,19 +20,25 @@ type Config(map: Map<MKey, Value>) =
     member _.Change(section: string, key: string, value: string) : Config = map.Change((section, key), (fun _ -> Some value)) |> Config
     member _.Remove(section: string, key: string) : Config = map.Remove(section, key) |> Config
 
-    member _.WriteLines() : string seq = map |> Writer.toLines
-    member _.WriteString() : string = map |> Writer.toString
+    member _.ToLines() : string seq = map |> Writer.toLines
+    override _.ToString() : string = map |> Writer.toString
 
 module Config =
 
     [<CompiledName("Empty")>]
     let empty: Config = Config.Empty
 
-    [<CompiledName("ReadLines")>]
-    let readLines (contents: string seq) : Result<Config, string> = Config.ReadLines contents
+    [<CompiledName("FromLines")>]
+    let fromLines (contents: string seq) : Result<Config, string> = Config.FromLines contents
 
-    [<CompiledName("ReadString")>]
-    let readString (contents: string) : Result<Config, string> = Config.ReadString contents
+    [<CompiledName("FromString")>]
+    let fromString (contents: string) : Result<Config, string> = Config.FromString contents
+
+    [<CompiledName("AppendLines")>]
+    let appendLines (config: Config) (contents: string seq) : Result<Config, string> = config.AppendLines contents
+
+    [<CompiledName("AppendString")>]
+    let appendString (config: Config) (contents: string) : Result<Config, string> = config.AppendString contents
 
     [<CompiledName("IsEmpty")>]
     let isEmpty (config: Config) : bool = config.IsEmpty
@@ -49,8 +58,8 @@ module Config =
     [<CompiledName("Remove")>]
     let remove (section: string) (key: string) (config: Config) : Config = config.Remove(section, key)
 
-    [<CompiledName("WriteLines")>]
-    let writeLines (config: Config) : string seq = config.WriteLines()
+    [<CompiledName("ToLines")>]
+    let toLines (config: Config) : string seq = config.ToLines()
 
-    [<CompiledName("WriteString")>]
-    let writeString (config: Config) : string = config.WriteString()
+    [<CompiledName("ToString")>]
+    let toString (config: Config) : string = config.ToString()

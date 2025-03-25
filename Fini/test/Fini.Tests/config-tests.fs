@@ -31,18 +31,18 @@ g-key=g-b-value"
 
 [<Fact>]
 let ``fromString and toString`` () =
-    let config = readString input
+    let config = fromString input
 
     let str =
         match config with
-        | Ok config -> writeString config
+        | Ok config -> toString config
         | Error error -> error
 
     Assert.Equal(output, str)
 
 [<Fact>]
 let ``if a value is present value returns some value`` () =
-    let config = readString input
+    let config = fromString input
 
     let result =
         match config with
@@ -56,7 +56,7 @@ let ``if a value is present value returns some value`` () =
 
 [<Fact>]
 let ``if no section is present value returns none`` () =
-    let config = readString input
+    let config = fromString input
 
     let result =
         match config with
@@ -70,7 +70,7 @@ let ``if no section is present value returns none`` () =
 
 [<Fact>]
 let ``if no value is present value returns no`` () =
-    let config = readString input
+    let config = fromString input
 
     let result =
         match config with
