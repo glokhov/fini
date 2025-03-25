@@ -5,13 +5,11 @@ open System.Text.RegularExpressions
 open TakeUntil
 open Types
 
-type Line =
-    | Section of Section
-    | Parameter of Parameter
+let SectionRegex: Regex =
+    Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
 
-let SectionRegex: Regex = Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
-
-let ParameterRegex: Regex = Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
+let ParameterRegex: Regex =
+    Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
 
 let CommentRegex: Regex = Regex(@"(.*?)(\s*#\s*)(.*)", RegexOptions.Compiled)
 
@@ -19,23 +17,23 @@ let EmptySpaceRegex: Regex = Regex(@"^\s*$", RegexOptions.Compiled)
 
 let (|ParseRegex|_|) (regex: Regex) (input: string) : string list option =
     match regex.Match(input) with
-    | m when m.Success -> Some(List.tail [ for g in m.Groups -> g.Value ])
+    | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> Some
     | _ -> None
 
 let (|ParseSection|_|) (text: string) : string option =
     match text with
-    | ParseRegex SectionRegex [ _; name; _ ] -> Some name
+    | ParseRegex SectionRegex [ _; name; _ ] -> name |> Some
     | _ -> None
 
 let (|ParseParameter|_|) (text: string) : (string * string) option =
     match text with
-    | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> Some <| (key, value)
+    | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> (key, value) |> Some
     | _ -> None
 
 let (|ParseLine|_|) (text: string) : Line option =
     match text with
-    | ParseSection section -> Some <| Section section
-    | ParseParameter parameter -> Some <| Parameter parameter
+    | ParseSection section -> section |> Section |> Some
+    | ParseParameter parameter -> parameter |> Parameter |> Some
     | _ -> None
 
 let parseLine (index: int, text: string) : Result<Line, string> =

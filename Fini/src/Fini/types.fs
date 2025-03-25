@@ -2,20 +2,22 @@ module internal Types
 
 type Section = string
 
-type Key = string
+type PKey = string
 
 type Value = string
 
-type Parameter = Key * Value
+type Parameter = PKey * Value
 
-type MapKey = Section * Key
+type MKey = Section * PKey
 
-let section (x: MapKey * Value) : Section = x |> fst |> fst
+type MParameter = MKey * Value
 
-let key (x: MapKey * Value) : Key = x |> fst |> snd
+type Line =
+    | Section of Section
+    | Parameter of Parameter
 
-let parameter (x: MapKey * Value) : Parameter = key x, snd x
+let section (p: MParameter) : Section = p |> fst |> fst
 
-let formatSection (scn: Section) : string = $"[{scn}]"
+let key (p: MParameter) : PKey = p |> fst |> snd
 
-let formatParameter (par: Parameter) : string = $"{fst par}={snd par}"
+let parameter (p: MParameter) : Parameter = key p, snd p

@@ -31,23 +31,23 @@ g-key=g-b-value"
 
 [<Fact>]
 let ``fromString and toString`` () =
-    let config = fromString input
+    let config = readString input
 
     let str =
         match config with
-        | Ok config -> toString config
+        | Ok config -> writeString config
         | Error error -> error
 
     Assert.Equal(output, str)
 
 [<Fact>]
 let ``if a value is present value returns some value`` () =
-    let config = fromString input
+    let config = readString input
 
     let result =
         match config with
         | Ok config ->
-            match value config "foo" "f-key" with
+            match find "foo" "f-key" config with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"
@@ -55,27 +55,13 @@ let ``if a value is present value returns some value`` () =
     Assert.Equal("f-value", result)
 
 [<Fact>]
-let ``if a global value is present globalValue returns some value`` () =
-    let config = fromString input
-
-    let result =
-        match config with
-        | Ok config ->
-            match globalValue config "g-key" with
-            | Some value -> value
-            | None -> "none"
-        | Error _ -> "error"
-
-    Assert.Equal("g-value", result)
-
-[<Fact>]
 let ``if no section is present value returns none`` () =
-    let config = fromString input
+    let config = readString input
 
     let result =
         match config with
         | Ok config ->
-            match value config "boo" "key" with
+            match find "boo" "key" config with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"
@@ -84,26 +70,12 @@ let ``if no section is present value returns none`` () =
 
 [<Fact>]
 let ``if no value is present value returns no`` () =
-    let config = fromString input
+    let config = readString input
 
     let result =
         match config with
         | Ok config ->
-            match value config "foo" "x-key" with
-            | Some value -> value
-            | None -> "none"
-        | Error _ -> "error"
-
-    Assert.Equal("none", result)
-
-[<Fact>]
-let ``if no global value is present globalValue returns none`` () =
-    let config = fromString input
-
-    let result =
-        match config with
-        | Ok config ->
-            match globalValue config "x-key" with
+            match find "foo" "x-key" config with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"

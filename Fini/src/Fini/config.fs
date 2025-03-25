@@ -1,54 +1,56 @@
 namespace Fini
 
-open Lines
 open Types
 
-type Config(map: Map<MapKey, Value>) =
+type Config(map: Map<MKey, Value>) =
     new() = Config(Map.empty)
-    member internal _.Map: Map<MapKey, Value> = map
+    
+    static member Empty : Config = Config(Map.empty)
+    static member ReadLines(contents: string seq) : Result<Config, string> = contents |> Reader.fromLines |> Result.map (fun map -> map |> Config)
+    static member ReadString(contents: string) : Result<Config, string> =  contents |> Reader.fromString |> Result.map (fun map -> map |> Config)
+
+    member _.IsEmpty: bool = map.IsEmpty
+    member _.ContainsKey(section: string, key: string) : bool = map.ContainsKey(section, key)
+
+    member _.Find(section: string, key: string) : string option = map.TryFind(section, key)
+    member _.Add(section: string, key: string, value: string) : Config = map.Add((section, key), value) |> Config
+    member _.Change(section: string, key: string, value: string) : Config = map.Change((section, key), (fun _ -> Some value)) |> Config
+    member _.Remove(section: string, key: string) : Config = map.Remove(section, key) |> Config
+
+    member _.WriteLines() : string seq = map |> Writer.toLines
+    member _.WriteString() : string = map |> Writer.toString
 
 module Config =
 
-    let value (config: Config) (section: string) (key: string) : string option =
-        config.Map.TryFind (section, key)
+    [<CompiledName("Empty")>]
+    let empty: Config = Config.Empty
 
-    let globalValue (config: Config) (key: string) : string option =
-        value config "" key
+    [<CompiledName("ReadLines")>]
+    let readLines (contents: string seq) : Result<Config, string> = Config.ReadLines contents
 
-    let addParameter (parameter: Parameter) (section: Section) (map: Map<MapKey, Value>) : Map<MapKey, Value> =
-        map.Add((section, fst parameter), snd parameter)
+    [<CompiledName("ReadString")>]
+    let readString (contents: string) : Result<Config, string> = Config.ReadString contents
 
-    let fromParserLines (lines: Parser.Line list) : Result<Config, string> =
-        let rec loop lines section map =
-            match lines with
-            | [] -> Config map |> Ok
-            | Parser.Section section :: tail -> loop tail section map
-            | Parser.Parameter parameter :: tail -> loop tail section (addParameter parameter section map)
-        loop lines "" Map.empty
+    [<CompiledName("IsEmpty")>]
+    let isEmpty (config: Config) : bool = config.IsEmpty
 
-    let fromLines (contents: string seq) : Result<Config, string> = contents |> Parser.parse |> Result.bind fromParserLines
+    [<CompiledName("Contains")>]
+    let containsKey (section: string) (key: string) (config: Config) : bool = config.ContainsKey(section, key)
 
-    let fromString (contents: string) : Result<Config, string> = contents |> splitLines |> fromLines
+    [<CompiledName("Find")>]
+    let find (section: string) (key: string) (config: Config) : string option = config.Find(section, key)
 
-    let cleanUp (lines: string list) : string list =
-        let rec loop lines acc =
-            match lines with
-            | [] -> acc
-            | "[]" :: tail -> loop tail acc
-            | head :: tail -> loop tail (head :: acc)
-        loop lines List.empty
+    [<CompiledName("Add")>]
+    let add (section: string) (key: string) (value: string) (config: Config) : Config = config.Add(section, key, value)
 
-    let writeSection (map: (MapKey * Value) seq) : string seq =
-        let parameters = map |> Seq.map parameter |> Seq.toList
-        let section = map |> Seq.head |> section |> formatSection |> List.singleton
-        let rec loop parameters acc =
-            match parameters with
-            | [] -> acc
-            | head :: tail -> loop tail ((head |> formatParameter) :: acc)
-        loop parameters section |> cleanUp |> Seq.ofList
+    [<CompiledName("Change")>]
+    let change (section: string) (key: string) (value: string) (config: Config) : Config = config.Change(section, key, value)
 
-    let groupSections (config: Config) : (MapKey * Value) seq seq = config.Map |> Map.toSeq |> Seq.groupBy section |> Seq.map snd
+    [<CompiledName("Remove")>]
+    let remove (section: string) (key: string) (config: Config) : Config = config.Remove(section, key)
 
-    let toLines (config: Config) : string seq = config |> groupSections |> Seq.collect writeSection
+    [<CompiledName("WriteLines")>]
+    let writeLines (config: Config) : string seq = config.WriteLines()
 
-    let toString (config: Config) : string = config |> toLines |> joinLines
+    [<CompiledName("WriteString")>]
+    let writeString (config: Config) : string = config.WriteString()
