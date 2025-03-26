@@ -1,14 +1,16 @@
 namespace Fini
 
+open System.IO
+
 type Config =
     new: unit -> Config
 
     static member Empty: Config
-    static member FromLines: string seq -> Result<Config, string>
-    static member FromString: string -> Result<Config, string>
+    static member FromReader: TextReader -> Result<Config, string>
+    static member FromFile: string -> Result<Config, string>
 
-    member AppendLines: string seq -> Result<Config, string>
-    member AppendString: string -> Result<Config, string>
+    member AppendFromReader: TextReader -> Result<Config, string>
+    member AppendFromFile: string -> Result<Config, string>
 
     member IsEmpty: bool
     member ContainsKey: section: string * key: string -> bool
@@ -26,17 +28,17 @@ module Config =
     [<CompiledName("Empty")>]
     val empty: Config
 
-    [<CompiledName("FromLines")>]
-    val fromLines: string seq -> Result<Config, string>
+    [<CompiledName("FromReader")>]
+    val fromReader: TextReader -> Result<Config, string>
 
-    [<CompiledName("FromString")>]
-    val fromString: string -> Result<Config, string>
+    [<CompiledName("FromFile")>]
+    val fromFile: string -> Result<Config, string>
 
-    [<CompiledName("AppendLines")>]
-    val appendLines: Config -> string seq -> Result<Config, string>
+    [<CompiledName("AppendFromReader")>]
+    val appendFromReader: Config -> TextReader -> Result<Config, string>
 
-    [<CompiledName("AppendString")>]
-    val appendString: Config -> string -> Result<Config, string>
+    [<CompiledName("AppendFromFile")>]
+    val appendFromFile: Config -> string -> Result<Config, string>
 
     [<CompiledName("IsEmpty")>]
     val isEmpty: Config -> bool

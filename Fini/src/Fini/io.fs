@@ -2,13 +2,37 @@ module internal IO
 
 open System
 open System.IO
-open System.Text
 open FInvoke.Result
 
-let readLines: string -> Result<string seq, Exception> = invoke File.ReadLines
+let readLines: path: string -> Result<string seq, Exception> = invoke File.ReadLines
 
-let readLinesEncoded: string -> Encoding -> Result<string seq, Exception> = invoke2 File.ReadLines
+let writeAllText: path: string -> contents: string -> Result<unit, Exception> = invoke2 File.WriteAllText
 
-let writeLines: string -> string seq -> Result<unit, Exception> = invoke2 File.WriteAllLines
+module File =
 
-let writeLinesEncoded: string -> string seq -> Encoding -> Result<unit, Exception> = invoke3 File.WriteAllLines
+    let openText (path: string) : Result<StreamReader, string> =
+        invoke File.OpenText path |> Result.mapError _.Message
+
+module TextReader =
+
+    let readLines (reader: TextReader) : Result<string, string> seq =
+        seq {
+            let mutable cur = Unchecked.defaultof<_>
+            let mutable ok = true
+
+            let readLine () =
+                match invoke reader.ReadLine () with
+                | Ok null -> false
+                | Ok line ->
+                    cur <- Ok line
+                    true
+                | Error err ->
+                    cur <- Error err.Message
+                    true
+
+            while ok && readLine () do
+                yield cur
+
+                if cur.IsError then
+                    ok <- false
+        }

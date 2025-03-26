@@ -1,5 +1,6 @@
 module Config.Tests
 
+open System.IO
 open Fini.Config
 open Xunit
 
@@ -31,7 +32,7 @@ g-key=g-b-value"
 
 [<Fact>]
 let ``fromString and toString`` () =
-    let config = fromString input
+    let config = new StringReader(input) |> fromReader
 
     let str =
         match config with
@@ -42,7 +43,7 @@ let ``fromString and toString`` () =
 
 [<Fact>]
 let ``if a value is present value returns some value`` () =
-    let config = fromString input
+    let config = new StringReader(input) |> fromReader
 
     let result =
         match config with
@@ -56,7 +57,7 @@ let ``if a value is present value returns some value`` () =
 
 [<Fact>]
 let ``if no section is present value returns none`` () =
-    let config = fromString input
+    let config = new StringReader(input) |> fromReader
 
     let result =
         match config with
@@ -70,7 +71,7 @@ let ``if no section is present value returns none`` () =
 
 [<Fact>]
 let ``if no value is present value returns no`` () =
-    let config = fromString input
+    let config = new StringReader(input) |> fromReader
 
     let result =
         match config with

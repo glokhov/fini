@@ -1,16 +1,17 @@
 namespace Fini
 
+open System.IO
 open Types
 
 type Config(map: Map<MKey, Value>) =
-    new() = Config(Map.empty)
+    new() = Config Map.empty
     
-    static member Empty : Config = Config(Map.empty)
-    static member FromLines(contents: string seq) : Result<Config, string> = contents |> Reader.fromLines |> Result.map (fun map -> map |> Config)
-    static member FromString(contents: string) : Result<Config, string> = contents |> Reader.fromString |> Result.map (fun map -> map |> Config)
+    static member Empty : Config = Config Map.empty 
+    static member FromReader(reader: TextReader) : Result<Config, string> = reader |> Reader.fromReader |> Result.map Config
+    static member FromFile(path: string) : Result<Config, string> = path |> Reader.fromFile |> Result.map Config
 
-    member _.AppendLines(contents: string seq) : Result<Config, string> = contents |> Reader.appendLines map |> Result.map (fun map -> map |> Config)
-    member _.AppendString(contents: string) : Result<Config, string> = contents |> Reader.appendString map |> Result.map (fun map -> map |> Config)
+    member _.AppendFromReader(reader: TextReader) : Result<Config, string> = reader |> Reader.appendFromReader map |> Result.map Config
+    member _.AppendFromFile(path: string) : Result<Config, string> = path |> Reader.appendFromFile map |> Result.map Config
 
     member _.IsEmpty: bool = map.IsEmpty
     member _.ContainsKey(section: string, key: string) : bool = map.ContainsKey(section, key)
@@ -28,17 +29,17 @@ module Config =
     [<CompiledName("Empty")>]
     let empty: Config = Config.Empty
 
-    [<CompiledName("FromLines")>]
-    let fromLines (contents: string seq) : Result<Config, string> = Config.FromLines contents
+    [<CompiledName("FromReader")>]
+    let fromReader (reader: TextReader) : Result<Config, string> = Config.FromReader reader
 
-    [<CompiledName("FromString")>]
-    let fromString (contents: string) : Result<Config, string> = Config.FromString contents
+    [<CompiledName("FromFile")>]
+    let fromFile (path: string) : Result<Config, string> = Config.FromFile path
 
-    [<CompiledName("AppendLines")>]
-    let appendLines (config: Config) (contents: string seq) : Result<Config, string> = config.AppendLines contents
+    [<CompiledName("AppendFromReader")>]
+    let appendFromReader (config: Config) (reader: TextReader) : Result<Config, string> = config.AppendFromReader reader
 
-    [<CompiledName("AppendString")>]
-    let appendString (config: Config) (contents: string) : Result<Config, string> = config.AppendString contents
+    [<CompiledName("AppendFromFile")>]
+    let appendFromFile (config: Config) (path: string) : Result<Config, string> = config.AppendFromFile path
 
     [<CompiledName("IsEmpty")>]
     let isEmpty (config: Config) : bool = config.IsEmpty

@@ -2,16 +2,13 @@ module internal Parser
 
 open Microsoft.FSharp.Collections
 open System.Text.RegularExpressions
-open TakeUntil
 open Types
 
-let SectionRegex: Regex =
-    Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
+let SectionRegex: Regex = Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
 
-let ParameterRegex: Regex =
-    Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
+let ParameterRegex: Regex = Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
 
-let CommentRegex: Regex = Regex(@"(.*?)(\s*#\s*)(.*)", RegexOptions.Compiled)
+let CommentRegex: Regex = Regex(@"^(\s*#\s*)(.*)", RegexOptions.Compiled)
 
 let EmptySpaceRegex: Regex = Regex(@"^\s*$", RegexOptions.Compiled)
 
@@ -30,10 +27,22 @@ let (|ParseParameter|_|) (text: string) : (string * string) option =
     | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> (key, value) |> Some
     | _ -> None
 
+let (|ParseComment|_|) (text: string) : string option =
+    match text with
+    | ParseRegex CommentRegex [ _; comment ] -> comment |> Some
+    | _ -> None
+
+let (|ParseEmptySpace|_|) (text: string) : string option =
+    match text with
+    | ParseRegex EmptySpaceRegex [ space ] -> space |> Some
+    | _ -> None
+
 let (|ParseLine|_|) (text: string) : Line option =
     match text with
     | ParseSection section -> section |> Section |> Some
     | ParseParameter parameter -> parameter |> Parameter |> Some
+    | ParseComment _ -> Empty |> Some
+    | ParseEmptySpace _ -> Empty |> Some
     | _ -> None
 
 let parseLine (index: int, text: string) : Result<Line, string> =
@@ -41,22 +50,5 @@ let parseLine (index: int, text: string) : Result<Line, string> =
     | ParseLine line -> Ok line
     | _ -> Error $"Cannot parse line {index + 1}: {text}."
 
-let removeComment (index: int, text: string) : int * string =
-    match text with
-    | ParseRegex CommentRegex [ text; _; _ ] -> (index, text)
-    | _ -> (index, text)
-
-let isNotWhiteSpace (_: int, text: string) : bool =
-    match text with
-    | ParseRegex EmptySpaceRegex _ -> false
-    | _ -> true
-
-let parse (lines: string seq) : Result<Line list, string> =
-    lines
-    |> Seq.indexed
-    |> Seq.map removeComment
-    |> Seq.filter isNotWhiteSpace
-    |> Seq.map parseLine
-    |> Seq.takeUntil _.IsError
-    |> Seq.toList
-    |> Result.combine
+let fromLine (index: int, result: Result<string, string>) : Result<Line, string> =
+    result |> Result.bind (fun line -> parseLine (index, line))
