@@ -34,14 +34,14 @@ let (|ParseComment|_|) (text: string) : string option =
 
 let (|ParseEmptySpace|_|) (text: string) : string option =
     match text with
-    | ParseRegex EmptySpaceRegex [ space ] -> space |> Some
+    | ParseRegex EmptySpaceRegex _ -> "" |> Some
     | _ -> None
 
 let (|ParseLine|_|) (text: string) : Line option =
     match text with
     | ParseSection section -> section |> Section |> Some
     | ParseParameter parameter -> parameter |> Parameter |> Some
-    | ParseComment _ -> Empty |> Some
+    | ParseComment comment -> comment |> Comment |> Some
     | ParseEmptySpace _ -> Empty |> Some
     | _ -> None
 

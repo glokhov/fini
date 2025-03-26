@@ -21,8 +21,8 @@ type Config(map: Map<MKey, Value>) =
     member _.Change(section: string, key: string, value: string) : Config = map.Change((section, key), (fun _ -> Some value)) |> Config
     member _.Remove(section: string, key: string) : Config = map.Remove(section, key) |> Config
 
-    member _.ToLines() : string seq = map |> Writer.toLines
-    override _.ToString() : string = map |> Writer.toString
+    member _.ToWriter(writer: TextWriter) : Result<unit, string> = writer |> Writer.toWriter map
+    member _.ToFile(path: string) : Result<unit, string> = path |> Writer.toFile map
 
 module Config =
 
@@ -59,8 +59,8 @@ module Config =
     [<CompiledName("Remove")>]
     let remove (section: string) (key: string) (config: Config) : Config = config.Remove(section, key)
 
-    [<CompiledName("ToLines")>]
-    let toLines (config: Config) : string seq = config.ToLines()
+    [<CompiledName("ToWriter")>]
+    let toWriter (writer: TextWriter) (config: Config) : Result<unit, string> = config.ToWriter(writer)
 
-    [<CompiledName("ToString")>]
-    let toString (config: Config) : string = config.ToString()
+    [<CompiledName("ToFile")>]
+    let toFile (path: string) (config: Config) : Result<unit, string> = config.ToFile(path)

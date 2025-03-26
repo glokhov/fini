@@ -10,7 +10,6 @@
     <ItemGroup>
         <Compile Include="assembly.fs" />
         <Compile Include="io.fs" />
-        <Compile Include="lines.fs" />
         <Compile Include="result.fs" />
         <Compile Include="types.fs" />
         <Compile Include="parser.fs" />

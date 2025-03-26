@@ -15,6 +15,7 @@ type MParameter = MKey * Value
 type Line =
     | Section of Section
     | Parameter of Parameter
+    | Comment of Value
     | Empty
 
 let section (p: MParameter) : Section = p |> fst |> fst

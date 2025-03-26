@@ -5,7 +5,9 @@ open Fini.Config
 open Xunit
 
 let input =
-    "g-key=g-value
+    "
+# comment
+g-key=g-value
 [foo.bar]
 f-key=f-b-value
 a-key=a-value
@@ -28,25 +30,50 @@ o-key=o-value
 [foo.bar]
 a-key=a-value
 f-key=f-b-value
-g-key=g-b-value"
+g-key=g-b-value
+"
 
 [<Fact>]
-let ``fromString and toString`` () =
-    let config = new StringReader(input) |> fromReader
+let ``fromReader and toWriter`` () =
+    use reader = new StringReader(input)
+    use writer = new StringWriter()
 
     let str =
-        match config with
-        | Ok config -> toString config
+        match fromReader reader with
+        | Ok config ->
+            match toWriter writer config with
+            | Ok _ -> writer.ToString()
+            | Error error -> error
         | Error error -> error
 
     Assert.Equal(output, str)
 
 [<Fact>]
+let ``fromFile and toFile`` () =
+    let inputTemp = Path.GetTempFileName()
+    let outputTemp = Path.GetTempFileName()
+
+    File.WriteAllText(inputTemp, input)
+
+    let str =
+        match fromFile inputTemp with
+        | Ok config ->
+            match toFile outputTemp config with
+            | Ok _ -> File.ReadAllText outputTemp
+            | Error error -> error
+        | Error error -> error
+
+    File.Delete inputTemp
+    File.Delete outputTemp
+
+    Assert.Equal(output, str)
+
+[<Fact>]
 let ``if a value is present value returns some value`` () =
-    let config = new StringReader(input) |> fromReader
+    let reader = new StringReader(input)
 
     let result =
-        match config with
+        match fromReader reader with
         | Ok config ->
             match find "foo" "f-key" config with
             | Some value -> value
@@ -57,10 +84,10 @@ let ``if a value is present value returns some value`` () =
 
 [<Fact>]
 let ``if no section is present value returns none`` () =
-    let config = new StringReader(input) |> fromReader
+    let reader = new StringReader(input)
 
     let result =
-        match config with
+        match fromReader reader with
         | Ok config ->
             match find "boo" "key" config with
             | Some value -> value
@@ -71,10 +98,10 @@ let ``if no section is present value returns none`` () =
 
 [<Fact>]
 let ``if no value is present value returns no`` () =
-    let config = new StringReader(input) |> fromReader
+    let reader = new StringReader(input)
 
     let result =
-        match config with
+        match fromReader reader with
         | Ok config ->
             match find "foo" "x-key" config with
             | Some value -> value

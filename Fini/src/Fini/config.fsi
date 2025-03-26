@@ -20,8 +20,8 @@ type Config =
     member Change: section: string * key: string * value: string -> Config
     member Remove: section: string * key: string -> Config
     
-    member ToLines: unit -> string seq
-    override ToString: unit -> string
+    member ToWriter: TextWriter -> Result<unit, string>
+    member ToFile: string -> Result<unit, string>
 
 module Config =
 
@@ -58,8 +58,8 @@ module Config =
     [<CompiledName("Remove")>]
     val remove: string -> string -> Config -> Config
 
-    [<CompiledName("ToLines")>]
-    val toLines: Config -> string seq
+    [<CompiledName("ToWriter")>]
+    val toWriter: TextWriter -> Config -> Result<unit, string>
 
-    [<CompiledName("ToString")>]
-    val toString: Config -> string
+    [<CompiledName("ToFile")>]
+    val toFile: string -> Config -> Result<unit, string>
