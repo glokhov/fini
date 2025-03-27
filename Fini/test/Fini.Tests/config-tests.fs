@@ -34,6 +34,22 @@ g-key=g-b-value
 "
 
 [<Fact>]
+let ``fromReader and toWriter returns error`` () =
+    use reader = new StringReader(input)
+    use writer = new StringWriter()
+    writer.Close()
+
+    let str =
+        match fromReader reader with
+        | Ok config ->
+            match toWriter writer config with
+            | Ok _ -> writer.ToString()
+            | Error error -> error
+        | Error error -> error
+
+    Assert.Equal("Cannot write to a closed TextWriter.", str)
+
+[<Fact>]
 let ``fromReader and toWriter`` () =
     use reader = new StringReader(input)
     use writer = new StringWriter()
@@ -50,21 +66,21 @@ let ``fromReader and toWriter`` () =
 
 [<Fact>]
 let ``fromFile and toFile`` () =
-    let inputTemp = Path.GetTempFileName()
-    let outputTemp = Path.GetTempFileName()
+    let inputPath = Path.GetTempFileName()
+    let outputPath = Path.GetTempFileName()
 
-    File.WriteAllText(inputTemp, input)
+    File.WriteAllText(inputPath, input)
 
     let str =
-        match fromFile inputTemp with
+        match fromFile inputPath with
         | Ok config ->
-            match toFile outputTemp config with
-            | Ok _ -> File.ReadAllText outputTemp
+            match toFile outputPath config with
+            | Ok _ -> File.ReadAllText outputPath
             | Error error -> error
         | Error error -> error
 
-    File.Delete inputTemp
-    File.Delete outputTemp
+    File.Delete inputPath
+    File.Delete outputPath
 
     Assert.Equal(output, str)
 

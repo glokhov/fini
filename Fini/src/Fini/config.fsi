@@ -19,47 +19,26 @@ type Config =
     member Add: section: string * key: string * value: string -> Config
     member Change: section: string * key: string * value: string -> Config
     member Remove: section: string * key: string -> Config
-    
+
     member ToWriter: TextWriter -> Result<unit, string>
     member ToFile: string -> Result<unit, string>
 
 module Config =
 
-    [<CompiledName("Empty")>]
     val empty: Config
+    val fromReader: reader: TextReader -> Result<Config, string>
+    val fromFile: path: string -> Result<Config, string>
 
-    [<CompiledName("FromReader")>]
-    val fromReader: TextReader -> Result<Config, string>
+    val appendFromReader: reader: TextReader -> config: Config -> Result<Config, string>
+    val appendFromFile: path: string -> config: Config -> Result<Config, string>
 
-    [<CompiledName("FromFile")>]
-    val fromFile: string -> Result<Config, string>
+    val isEmpty: config: Config -> bool
+    val containsKey: section: string -> key: string -> config: Config -> bool
 
-    [<CompiledName("AppendFromReader")>]
-    val appendFromReader: Config -> TextReader -> Result<Config, string>
+    val find: section: string -> key: string -> config: Config -> string option
+    val add: section: string -> key: string -> value: string -> config: Config -> Config
+    val change: section: string -> key: string -> value: string -> config: Config -> Config
+    val remove: section: string -> key: string -> config: Config -> Config
 
-    [<CompiledName("AppendFromFile")>]
-    val appendFromFile: Config -> string -> Result<Config, string>
-
-    [<CompiledName("IsEmpty")>]
-    val isEmpty: Config -> bool
-    
-    [<CompiledName("Contains")>]
-    val containsKey: string -> string -> Config -> bool
-    
-    [<CompiledName("Find")>]
-    val find: string -> string -> Config -> string option
-
-    [<CompiledName("Add")>]
-    val add: string -> string -> string -> Config -> Config
-
-    [<CompiledName("Change")>]
-    val change: string -> string -> string -> Config -> Config
-
-    [<CompiledName("Remove")>]
-    val remove: string -> string -> Config -> Config
-
-    [<CompiledName("ToWriter")>]
-    val toWriter: TextWriter -> Config -> Result<unit, string>
-
-    [<CompiledName("ToFile")>]
-    val toFile: string -> Config -> Result<unit, string>
+    val toWriter: writer: TextWriter -> config: Config -> Result<unit, string>
+    val toFile: path: string -> config: Config -> Result<unit, string>

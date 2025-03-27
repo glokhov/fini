@@ -13,8 +13,7 @@
         <Compile Include="result.fs" />
         <Compile Include="types.fs" />
         <Compile Include="parser.fs" />
-        <Compile Include="reader.fs" />
-        <Compile Include="writer.fs" />
+        <Compile Include="ini-map.fs" />
         <Compile Include="config.fsi" />
         <Compile Include="config.fs" />
     </ItemGroup>

@@ -18,8 +18,12 @@ type Line =
     | Comment of Value
     | Empty
 
-let section (p: MParameter) : Section = p |> fst |> fst
+let private section (p: MParameter) : Section = p |> fst |> fst
 
-let key (p: MParameter) : PKey = p |> fst |> snd
+let private key (p: MParameter) : PKey = p |> fst |> snd
 
-let parameter (p: MParameter) : Parameter = key p, snd p
+let private parameter (p: MParameter) : Parameter = key p, snd p
+
+let formatSection (p: MParameter) : string = p |> section |> (fun section -> $"[{section}]")
+
+let formatParameter (p: MParameter) : string = p |> parameter |> (fun parameter -> $"{fst parameter}={snd parameter}")
