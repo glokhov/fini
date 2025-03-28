@@ -4,7 +4,6 @@ open System.IO
 
 [<Sealed>]
 type Config =
-
     static member Empty: Config
     static member FromReader: TextReader -> Result<Config, string>
     static member FromFile: string -> Result<Config, string>
@@ -15,6 +14,7 @@ type Config =
     member IsEmpty: bool
     member ContainsKey: section: string * key: string -> bool
 
+    member FindNested: section: string * key: string -> string option
     member Find: section: string * key: string -> string option
     member Add: section: string * key: string * value: string -> Config
     member Change: section: string * key: string * value: string -> Config
@@ -24,7 +24,6 @@ type Config =
     member ToFile: string -> Result<unit, string>
 
 module Config =
-
     [<CompiledName("Empty")>]
     val empty: Config
 
@@ -45,6 +44,9 @@ module Config =
 
     [<CompiledName("ContainsKey")>]
     val containsKey: section: string -> key: string -> config: Config -> bool
+
+    [<CompiledName("FindNested")>]
+    val findNested: section: string -> key: string -> config: Config -> string option
 
     [<CompiledName("Find")>]
     val find: section: string -> key: string -> config: Config -> string option

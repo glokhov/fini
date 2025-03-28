@@ -5,7 +5,6 @@ open Types
 
 [<Sealed>]
 type Config(table: Map<MKey, Value>) =
-
     static let empty: Config = Config Map.empty
 
     static member Empty: Config = empty
@@ -18,6 +17,7 @@ type Config(table: Map<MKey, Value>) =
     member _.IsEmpty: bool = table.IsEmpty
     member _.ContainsKey(section: string, key: string) : bool = table.ContainsKey(section, key)
 
+    member _.FindNested(section: string, key: string) : string option = table |> IniMap.findNested section key
     member _.Find(section: string, key: string) : string option = table.TryFind(section, key)
     member _.Add(section: string, key: string, value: string) : Config = table.Add((section, key), value) |> Config
     member _.Change(section: string, key: string, value: string) : Config = table.Change((section, key), (fun _ -> Some value)) |> Config
@@ -27,15 +27,14 @@ type Config(table: Map<MKey, Value>) =
     member _.ToFile(path: string) : Result<unit, string> = table |> IniMap.toFile path
 
 module Config =
-
     [<CompiledName("Empty")>]
     let empty : Config = Config.Empty
 
     [<CompiledName("FromReader")>]
-    let fromReader (reader: TextReader) : Result<Config, string> = Config.FromReader(reader)
+    let fromReader (reader: TextReader) : Result<Config, string> = Config.FromReader reader
 
     [<CompiledName("FromFile")>]
-    let fromFile (path: string) : Result<Config, string> = Config.FromFile(path)
+    let fromFile (path: string) : Result<Config, string> = Config.FromFile path
     
     [<CompiledName("AppendFromReader")>]
     let appendFromReader (reader: TextReader) (config: Config) : Result<Config, string> = config.AppendFromReader reader
@@ -48,6 +47,9 @@ module Config =
 
     [<CompiledName("ContainsKey")>]
     let containsKey (section: string) (key: string) (config: Config) : bool = config.ContainsKey(section, key)
+
+    [<CompiledName("FindNested")>]
+    let findNested (section: string) (key: string) (config: Config) : string option = config.FindNested(section, key)
 
     [<CompiledName("Find")>]
     let find (section: string) (key: string) (config: Config) : string option = config.Find(section, key)
@@ -62,7 +64,7 @@ module Config =
     let remove (section: string) (key: string) (config: Config) : Config = config.Remove(section, key)
 
     [<CompiledName("ToWriter")>]
-    let toWriter (writer: TextWriter) (config: Config) : Result<unit, string> = config.ToWriter(writer)
+    let toWriter (writer: TextWriter) (config: Config) : Result<unit, string> = config.ToWriter writer
 
     [<CompiledName("ToFile")>]
-    let toFile (path: string) (config: Config) : Result<unit, string> = config.ToFile(path)
+    let toFile (path: string) (config: Config) : Result<unit, string> = config.ToFile path

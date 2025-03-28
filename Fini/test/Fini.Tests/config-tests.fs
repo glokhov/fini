@@ -37,6 +37,7 @@ g-key=g-b-value
 let ``fromReader and toWriter returns error`` () =
     use reader = new StringReader(input)
     use writer = new StringWriter()
+
     writer.Close()
 
     let str =
@@ -113,7 +114,7 @@ let ``if no section is present value returns none`` () =
     Assert.Equal("none", result)
 
 [<Fact>]
-let ``if no value is present value returns no`` () =
+let ``if no value is present value returns none`` () =
     let reader = new StringReader(input)
 
     let result =
@@ -125,3 +126,31 @@ let ``if no value is present value returns no`` () =
         | Error _ -> "error"
 
     Assert.Equal("none", result)
+
+[<Fact>]
+let ``findNested returns value from global section`` () =
+    let config =
+        empty
+        |> add "" "key" "value"
+        |> add "" "g-key" "g-value"
+        |> add ".foo" "g-key" "f-value"
+
+    let value = config |> findNested ".foo" "key"
+    let fValue = config |> findNested ".foo" "g-key"
+
+    Assert.Equal("value", value.Value)
+    Assert.Equal("f-value", fValue.Value)
+
+[<Fact>]
+let ``findNested returns value from parent section`` () =
+    let config =
+        empty
+        |> add "foo" "key" "value"
+        |> add "foo" "f-key" "f-value"
+        |> add "foo.bar" "f-key" "b-value"
+
+    let value = config |> findNested "foo.bar" "key"
+    let bValue = config |> findNested "foo.bar" "f-key"
+
+    Assert.Equal("value", value.Value)
+    Assert.Equal("b-value", bValue.Value)
