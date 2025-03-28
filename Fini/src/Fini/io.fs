@@ -12,19 +12,22 @@ module File =
         invoke File.CreateText path |> Result.mapError _.Message
 
 module TextReader =
+    let private readLine (reader: TextReader) : Result<string, string> =
+        invoke reader.ReadLine () |> Result.mapError _.Message
+
     let readLines (reader: TextReader) : Result<string, string> seq =
         seq {
             let mutable cur = Unchecked.defaultof<_>
             let mutable ok = true
 
             let readLine () =
-                match invoke reader.ReadLine () with
+                match readLine reader with
                 | Ok null -> false
                 | Ok line ->
                     cur <- Ok line
                     true
                 | Error err ->
-                    cur <- Error err.Message
+                    cur <- Error err
                     true
 
             while ok && readLine () do

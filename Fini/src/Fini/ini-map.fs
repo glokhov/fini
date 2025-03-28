@@ -2,7 +2,6 @@ module internal IniMap
 
 open System.IO
 open Types
-open TakeUntil
 
 // reader
 
@@ -19,9 +18,7 @@ let appendFromReader (reader: TextReader) (map: Map<MKey, Value>) : Result<Map<M
     |> IO.TextReader.readLines
     |> Seq.indexed
     |> Seq.map Parser.fromLine
-    |> Seq.takeUntil _.IsError
-    |> Seq.toList
-    |> Result.combine
+    |> Result.collect
     |> Result.bind (fun lines -> append lines "" map)
 
 let appendFromFile (path: string) (map: Map<MKey, Value>) : Result<Map<MKey, Value>, string> =
@@ -33,7 +30,7 @@ let appendFromFile (path: string) (map: Map<MKey, Value>) : Result<Map<MKey, Val
 
 // writer
 
-let private getLines (map: Map<MKey, Value>) : string seq =
+let private toLines (map: Map<MKey, Value>) : string seq =
     let rec loop (map: MParameter list) (section: string) (acc: string list) =
         match map with
         | [] -> acc
@@ -44,15 +41,13 @@ let private getLines (map: Map<MKey, Value>) : string seq =
                 loop tail section (par :: acc)
             else
                 loop tail sec (par :: sec :: acc)
-    loop (map |> Map.toList) "[]" List.empty |> List.rev |> Seq.ofList
+    loop (map |> Map.toList) "[]" List.empty |> Seq.rev
 
 let toWriter (writer: TextWriter) (map: Map<MKey, Value>) : Result<unit, string> =
     map
-    |> getLines
+    |> toLines
     |> Seq.map (IO.TextWriter.writeLine writer)
-    |> Seq.takeUntil _.IsError
-    |> Seq.toList
-    |> Result.combineUnit
+    |> Result.collectUnit
     |> Result.bind (fun _ -> IO.TextWriter.flush writer)
 
 let toFile (path: string) (map: Map<MKey, Value>) : Result<unit, string> =

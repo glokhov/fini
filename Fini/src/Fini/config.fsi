@@ -2,8 +2,8 @@ namespace Fini
 
 open System.IO
 
+[<Sealed>]
 type Config =
-    new: unit -> Config
 
     static member Empty: Config
     static member FromReader: TextReader -> Result<Config, string>
@@ -25,20 +25,41 @@ type Config =
 
 module Config =
 
+    [<CompiledName("Empty")>]
     val empty: Config
-    val fromReader: reader: TextReader -> Result<Config, string>
-    val fromFile: path: string -> Result<Config, string>
 
+    [<CompiledName("FromReader")>]
+    val fromReader: TextReader -> Result<Config, string>
+
+    [<CompiledName("FromFile")>]
+    val fromFile: string -> Result<Config, string>
+
+    [<CompiledName("AppendFromReader")>]
     val appendFromReader: reader: TextReader -> config: Config -> Result<Config, string>
+
+    [<CompiledName("AppendFromFile")>]
     val appendFromFile: path: string -> config: Config -> Result<Config, string>
 
+    [<CompiledName("IsEmpty")>]
     val isEmpty: config: Config -> bool
+
+    [<CompiledName("ContainsKey")>]
     val containsKey: section: string -> key: string -> config: Config -> bool
 
+    [<CompiledName("Find")>]
     val find: section: string -> key: string -> config: Config -> string option
+
+    [<CompiledName("Add")>]
     val add: section: string -> key: string -> value: string -> config: Config -> Config
+
+    [<CompiledName("Change")>]
     val change: section: string -> key: string -> value: string -> config: Config -> Config
+
+    [<CompiledName("Remove")>]
     val remove: section: string -> key: string -> config: Config -> Config
 
+    [<CompiledName("ToWriter")>]
     val toWriter: writer: TextWriter -> config: Config -> Result<unit, string>
+
+    [<CompiledName("ToFile")>]
     val toFile: path: string -> config: Config -> Result<unit, string>
