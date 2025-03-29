@@ -59,24 +59,22 @@ let toFile (path: string) (map: Map<MKey, Value>) : Result<unit, string> =
 
 // find
 
-let rec private subsections (section: string option) (acc: string list) : string list =
-    match section with
-    | None -> List.rev acc
-    | Some sec ->
-        let ind = sec.LastIndexOf '.'
-        if ind < 0 then
-            subsections None acc
-            else
-                let sub = sec[..ind-1]
-                subsections (Some sub) (sub :: acc)
-
-let rec private findInSubsections (section: string list) (key: string) (map: Map<MKey, Value>) : string option =
-    match section with
-    | [] -> None
-    | head :: tail ->
-        match map |> Map.tryFind(head, key) with
-        | Some value -> Some value
-        | None -> map |> findInSubsections tail key
+let rec private subsections (section: string) : string list =
+    let rec loop (section: string) (acc: string list) =
+        let index = section.LastIndexOf '.'
+        if index < 0 then
+            List.rev acc
+        else
+            let sub = section[.. index - 1]
+            loop sub (sub :: acc)
+    loop section (List.singleton section)
 
 let findNested (section: string) (key: string) (map: Map<MKey, Value>) : string option =
-    map |> findInSubsections (subsections (Some section) (List.singleton section)) key
+    let rec loop (subsections: string list) (key: string) (map: Map<MKey, Value>) =
+        match subsections with
+        | [] -> None
+        | head :: tail ->
+            match Map.tryFind (head, key) map with
+            | Some value -> Some value
+            | None -> loop tail key map
+    loop (subsections section) key map

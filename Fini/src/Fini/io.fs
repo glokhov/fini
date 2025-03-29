@@ -38,9 +38,9 @@ module TextReader =
         }
 
 module TextWriter =
-    let flush (writer: TextWriter) : Result<unit, string> =
-        invoke writer.Flush () |> Result.mapError _.Message
-
     let writeLine (writer: TextWriter) (value: string) : Result<unit, string> =
         let writeLine: string -> Result<unit, Exception> = invoke writer.WriteLine
         writeLine value |> Result.mapError _.Message
+
+    let flush (writer: TextWriter) : Result<unit, string> =
+        invoke writer.Flush () |> Result.mapError _.Message
