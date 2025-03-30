@@ -1,2 +1,2 @@
-# INI configuration file [![Nuget Version](https://img.shields.io/nuget/v/Fini)](https://www.nuget.org/packages/Configuration.Ini)
-Simple INI parser and writer.
+# INI configuration file [![Nuget Version](https://img.shields.io/nuget/v/Fini)](https://www.nuget.org/packages/Fini)
+An immutable collection of key-value pairs organized in sections, based on the F# [Map](https://fsharp.github.io/fsharp-core-docs/reference/fsharp-collections-fsharpmap-2.html) type.

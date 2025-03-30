@@ -1,7 +1,7 @@
 module Config.Tests
 
 open System.IO
-open Fini.Config
+open Fini.Ini
 open Xunit
 
 let input =

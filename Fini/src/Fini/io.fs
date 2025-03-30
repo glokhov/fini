@@ -1,17 +1,17 @@
-module internal IO
+namespace IO
 
 open System
 open System.IO
 open FInvoke.Result
 
-module File =
+module internal File =
     let openText (path: string) : Result<StreamReader, string> =
         invoke File.OpenText path |> Result.mapError _.Message
 
     let createText (path: string) : Result<StreamWriter, string> =
         invoke File.CreateText path |> Result.mapError _.Message
 
-module TextReader =
+module internal TextReader =
     let private readLine (reader: TextReader) : Result<string, string> =
         invoke reader.ReadLine () |> Result.mapError _.Message
 
@@ -37,7 +37,7 @@ module TextReader =
                     ok <- false
         }
 
-module TextWriter =
+module internal TextWriter =
     let writeLine (writer: TextWriter) (value: string) : Result<unit, string> =
         let writeLine: string -> Result<unit, Exception> = invoke writer.WriteLine
         writeLine value |> Result.mapError _.Message

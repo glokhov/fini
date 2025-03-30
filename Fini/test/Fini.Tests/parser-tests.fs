@@ -1,9 +1,10 @@
 module Parser.Tests
 
+open Fini
 open Microsoft.FSharp.Core
 open FsUnit
-open Types
 open Xunit
+open Fini.Line
 
 [<Fact>]
 let ``if key missing ParseLine returns none`` () =
@@ -91,7 +92,7 @@ let ``if open and close brackets present ParseLine returns some section`` () =
         match "[foo]" with
         | ParseLine line -> Some line
         | _ -> None
-    section |> should equal ("foo" |> Section |> Some)
+    section |> should equal ("foo" |> Line.Section |> Some)
 
 [<Fact>]
 let ``if open and close brackets present ParseLine returns some section spaces`` () =
@@ -99,12 +100,12 @@ let ``if open and close brackets present ParseLine returns some section spaces``
         match " [ foo ] " with
         | ParseLine line -> Some line
         | _ -> None
-    section |> should equal ("foo" |> Section |> Some)
+    section |> should equal ("foo" |> Line.Section |> Some)
 
 [<Fact>]
 let ``if text is a section parseLine returns ok section`` () =
     let line = parseLine (1, "[foo]")
-    line |> should equal ("foo" |> Section |> Result<Line, string>.Ok)
+    line |> should equal ("foo" |> Line.Section |> Result<Line, string>.Ok)
 
 [<Fact>]
 let ``if text is a parameter parseLine returns ok parameter`` () =

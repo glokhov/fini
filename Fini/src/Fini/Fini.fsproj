@@ -15,10 +15,10 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>0.0.1</Version>
+        <Version>0.0.2</Version>
     </PropertyGroup>
     <ItemGroup>
-        <None Include="../../../README.md" Pack="true" Visible="false" PackagePath="/" />
+        <None Include="../../../README.md" Pack="true" Visible="true" PackagePath="/" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="FInvoke" Version="0.2.0" />
@@ -28,10 +28,9 @@
         <Compile Include="assembly.fs" />
         <Compile Include="io.fs" />
         <Compile Include="result.fs" />
-        <Compile Include="types.fs" />
-        <Compile Include="parser.fs" />
+        <Compile Include="line.fs" />
         <Compile Include="ini-map.fs" />
-        <Compile Include="config.fsi" />
-        <Compile Include="config.fs" />
+        <Compile Include="ini.fsi" />
+        <Compile Include="ini.fs" />
     </ItemGroup>
 </Project>
