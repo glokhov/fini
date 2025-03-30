@@ -2,7 +2,24 @@
     <PropertyGroup>
         <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
         <LangVersion>preview</LangVersion>
+        <Authors>Gennadiy Lokhov</Authors>
+        <Copyright>Copyright © Gennadiy Lokhov</Copyright>
+        <Description>Simple INI parser and writer</Description>
+        <PackageId>Fini</PackageId>
+        <PackageTags>fsharp;ini</PackageTags>
+        <PackageProjectUrl>https://github.com/glokhov/fini</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/glokhov/fini.git</RepositoryUrl>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Version>0.0.1</Version>
     </PropertyGroup>
+    <ItemGroup>
+        <None Include="../../../README.md" Pack="true" Visible="false" PackagePath="/" />
+    </ItemGroup>
     <ItemGroup>
         <PackageReference Include="FInvoke" Version="0.2.0" />
         <PackageReference Include="TakeUntil" Version="0.1.1" />
