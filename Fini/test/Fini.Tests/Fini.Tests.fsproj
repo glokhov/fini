@@ -16,7 +16,7 @@
     </ItemGroup>
     <ItemGroup>
       <Compile Include="io-tests.fs" />
-      <Compile Include="parser-tests.fs" />
-      <Compile Include="config-tests.fs" />
+      <Compile Include="line-tests.fs" />
+      <Compile Include="map-tests.fs" />
     </ItemGroup>
 </Project>

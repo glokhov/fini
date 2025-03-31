@@ -1,4 +1,4 @@
-module Parser.Tests
+module Line.Tests
 
 open Fini
 open Microsoft.FSharp.Core

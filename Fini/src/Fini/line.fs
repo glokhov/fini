@@ -1,24 +1,15 @@
 namespace Fini
 
-type internal Section = string
-
-type internal PKey = string
-
-type internal Value = string
-
-type internal Parameter = PKey * Value
+open Microsoft.FSharp.Collections
+open System.Text.RegularExpressions
 
 type internal Line =
-    | Section of Section
-    | Parameter of Parameter
-    | Comment of Value
+    | Section of string
+    | Parameter of string * string
+    | Comment of string
     | Empty
 
 module internal Line =
-
-    open Microsoft.FSharp.Collections
-    open System.Text.RegularExpressions
-
     let SectionRegex: Regex = Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
 
     let ParameterRegex: Regex = Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
@@ -27,38 +18,38 @@ module internal Line =
 
     let EmptySpaceRegex: Regex = Regex(@"^\s*$", RegexOptions.Compiled)
 
-    let (|ParseRegex|_|) (regex: Regex) (input: string) : string list option =
+    let (|ParseRegex|_|) (regex: Regex) (input: string) : string list voption =
         match regex.Match(input) with
-        | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> Some
-        | _ -> None
+        | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> ValueSome
+        | _ -> ValueNone
 
-    let (|ParseSection|_|) (text: string) : string option =
+    let (|ParseSection|_|) (text: string) : string voption =
         match text with
-        | ParseRegex SectionRegex [ _; name; _ ] -> name |> Some
-        | _ -> None
+        | ParseRegex SectionRegex [ _; name; _ ] -> name |> ValueSome
+        | _ -> ValueNone
 
-    let (|ParseParameter|_|) (text: string) : (string * string) option =
+    let (|ParseParameter|_|) (text: string) : (string * string) voption =
         match text with
-        | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> (key, value) |> Some
-        | _ -> None
+        | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> (key, value) |> ValueSome
+        | _ -> ValueNone
 
-    let (|ParseComment|_|) (text: string) : string option =
+    let (|ParseComment|_|) (text: string) : string voption =
         match text with
-        | ParseRegex CommentRegex [ _; comment ] -> comment |> Some
-        | _ -> None
+        | ParseRegex CommentRegex [ _; comment ] -> comment |> ValueSome
+        | _ -> ValueNone
 
-    let (|ParseEmptySpace|_|) (text: string) : string option =
+    let (|ParseEmptySpace|_|) (text: string) : string voption =
         match text with
-        | ParseRegex EmptySpaceRegex _ -> "" |> Some
-        | _ -> None
+        | ParseRegex EmptySpaceRegex _ -> "" |> ValueSome
+        | _ -> ValueNone
 
-    let (|ParseLine|_|) (text: string) : Line option =
+    let (|ParseLine|_|) (text: string) : Line voption =
         match text with
-        | ParseSection section -> section |> Section |> Some
-        | ParseParameter parameter -> parameter |> Parameter |> Some
-        | ParseComment comment -> comment |> Comment |> Some
-        | ParseEmptySpace _ -> Empty |> Some
-        | _ -> None
+        | ParseSection section -> section |> Section |> ValueSome
+        | ParseParameter parameter -> parameter |> Parameter |> ValueSome
+        | ParseComment comment -> comment |> Comment |> ValueSome
+        | ParseEmptySpace _ -> Empty |> ValueSome
+        | _ -> ValueNone
 
     let parseLine (index: int, text: string) : Result<Line, string> =
         match text with

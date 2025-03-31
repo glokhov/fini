@@ -1,69 +1,93 @@
 namespace Fini
 
 open System.IO
+open Microsoft.FSharp.Core
 
 [<Sealed>]
-type Ini(map: IniMap) =
+type Ini(map: Map<string * string, string>) =
     static let empty: Ini = Ini Map.empty
-
     static member Empty: Ini = empty
-    static member FromReader(reader: TextReader) : Result<Ini, string> = Map.empty |> IniMap.appendFromReader reader |> Result.map Ini
-    static member FromFile(path: string) : Result<Ini, string> = Map.empty |> IniMap.appendFromFile path |> Result.map Ini
 
-    member _.AppendFromReader(reader: TextReader) : Result<Ini, string> = map |> IniMap.appendFromReader reader |> Result.map Ini
-    member _.AppendFromFile(path: string) : Result<Ini, string> = map |> IniMap.appendFromFile path |> Result.map Ini
+    static member FromReader(reader: TextReader) : Result<Ini, string> = Map.empty |> Map.appendFromReader reader |> Result.map Ini
+    static member FromFile(path: string) : Result<Ini, string> = Map.empty |> Map.appendFromFile path |> Result.map Ini
 
-    member _.IsEmpty: bool = map.IsEmpty
-    member _.ContainsKey(section: string, key: string) : bool = map.ContainsKey(section, key)
+    member _.Map: Map<string * string, string> = map
 
-    member _.FindNested(section: string, key: string) : string option = map |> IniMap.findNested section key
+    member _.AppendFromReader(reader: TextReader) : Result<Ini, string> = map |> Map.appendFromReader reader |> Result.map Ini
+    member _.AppendFromFile(path: string) : Result<Ini, string> = map |> Map.appendFromFile path |> Result.map Ini
+
+    member _.IsEmpty : bool = map.IsEmpty
+    member _.Count : int = map.Count
+
+    member _.Parameters : (string * string * string) seq = map |> Map.parameters
+    member _.Sections : string seq = map |> Map.sections
+    member _.Keys(section: string) : string seq = map |> Map.keys section
+    member _.Values(section: string) : string seq = map |> Map.values section
+    member _.Section(section: string) : Map<string, string> = map |> Map.section section
+
+    member _.FindNested(section: string, key: string) : string option = map |> Map.findNested section key
     member _.Find(section: string, key: string) : string option = map.TryFind(section, key)
     member _.Add(section: string, key: string, value: string) : Ini = map.Add((section, key), value) |> Ini
     member _.Change(section: string, key: string, value: string) : Ini = map.Change((section, key), (fun _ -> Some value)) |> Ini
     member _.Remove(section: string, key: string) : Ini = map.Remove(section, key) |> Ini
 
-    member _.ToWriter(writer: TextWriter) : Result<unit, string> = map |> IniMap.toWriter writer
-    member _.ToFile(path: string) : Result<unit, string> = map |> IniMap.toFile path
+    member _.ToWriter(writer: TextWriter) : Result<unit, string> = map |> Map.toWriter writer
+    member _.ToFile(path: string) : Result<unit, string> = map |> Map.toFile path
 
 module Ini =
     [<CompiledName("Empty")>]
     let empty : Ini = Ini.Empty
 
     [<CompiledName("FromReader")>]
-    let fromReader (reader: TextReader) : Result<Ini, string> = Ini.FromReader reader
+    let fromReader (reader: TextReader) : Result<Ini, string> = Ini.FromReader(reader)
 
     [<CompiledName("FromFile")>]
-    let fromFile (path: string) : Result<Ini, string> = Ini.FromFile path
+    let fromFile (path: string) : Result<Ini, string> = Ini.FromFile(path)
     
     [<CompiledName("AppendFromReader")>]
-    let appendFromReader (reader: TextReader) (config: Ini) : Result<Ini, string> = config.AppendFromReader reader
+    let appendFromReader (reader: TextReader) (ini: Ini) : Result<Ini, string> = ini.AppendFromReader(reader)
 
     [<CompiledName("AppendFromFile")>]
-    let appendFromFile (path: string) (config: Ini) : Result<Ini, string> = config.AppendFromFile path
+    let appendFromFile (path: string) (ini: Ini) : Result<Ini, string> = ini.AppendFromFile(path)
 
     [<CompiledName("IsEmpty")>]
-    let isEmpty (config: Ini) : bool = config.IsEmpty
+    let isEmpty (ini: Ini) : bool = ini.IsEmpty
 
-    [<CompiledName("ContainsKey")>]
-    let containsKey (section: string) (key: string) (config: Ini) : bool = config.ContainsKey(section, key)
+    [<CompiledName("Count")>]
+    let count (ini: Ini) : int = ini.Count
 
+    [<CompiledName("Parameters")>]
+    let parameters (ini: Ini) : (string * string * string) seq = ini.Parameters
+
+    [<CompiledName("Sections")>]
+    let sections (ini: Ini) : string seq = ini.Sections
+
+    [<CompiledName("Keys")>]
+    let keys (section: string) (ini: Ini) : string seq = ini.Keys(section)
+
+    [<CompiledName("Values")>]
+    let values (section: string) (ini: Ini) : string seq = ini.Values(section)
+
+    [<CompiledName("Section")>]
+    let section (section: string) (ini: Ini) : Map<string, string> = ini.Section(section)
+    
     [<CompiledName("FindNested")>]
-    let findNested (section: string) (key: string) (config: Ini) : string option = config.FindNested(section, key)
+    let findNested (section: string) (key: string) (ini: Ini) : string option = ini.FindNested(section, key)
 
     [<CompiledName("Find")>]
-    let find (section: string) (key: string) (config: Ini) : string option = config.Find(section, key)
+    let find (section: string) (key: string) (ini: Ini) : string option = ini.Find(section, key)
 
     [<CompiledName("Add")>]
-    let add (section: string) (key: string) (value: string) (config: Ini) : Ini = config.Add(section, key, value)
+    let add (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Add(section, key, value)
 
     [<CompiledName("Change")>]
-    let change (section: string) (key: string) (value: string) (config: Ini) : Ini = config.Change(section, key, value)
+    let change (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Change(section, key, value)
 
     [<CompiledName("Remove")>]
-    let remove (section: string) (key: string) (config: Ini) : Ini = config.Remove(section, key)
+    let remove (section: string) (key: string) (ini: Ini) : Ini = ini.Remove(section, key)
 
     [<CompiledName("ToWriter")>]
-    let toWriter (writer: TextWriter) (config: Ini) : Result<unit, string> = config.ToWriter writer
+    let toWriter (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriter writer
 
     [<CompiledName("ToFile")>]
-    let toFile (path: string) (config: Ini) : Result<unit, string> = config.ToFile path
+    let toFile (path: string) (ini: Ini) : Result<unit, string> = ini.ToFile path

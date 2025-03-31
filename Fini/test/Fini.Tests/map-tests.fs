@@ -1,4 +1,4 @@
-module Config.Tests
+module Map.Tests
 
 open System.IO
 open Fini.Ini
@@ -42,8 +42,8 @@ let ``fromReader and toWriter returns error`` () =
 
     let str =
         match fromReader reader with
-        | Ok config ->
-            match toWriter writer config with
+        | Ok ini ->
+            match toWriter writer ini with
             | Ok _ -> writer.ToString()
             | Error error -> error
         | Error error -> error
@@ -57,8 +57,8 @@ let ``fromReader and toWriter`` () =
 
     let str =
         match fromReader reader with
-        | Ok config ->
-            match toWriter writer config with
+        | Ok ini ->
+            match toWriter writer ini with
             | Ok _ -> writer.ToString()
             | Error error -> error
         | Error error -> error
@@ -74,8 +74,8 @@ let ``fromFile and toFile`` () =
 
     let str =
         match fromFile inputPath with
-        | Ok config ->
-            match toFile outputPath config with
+        | Ok ini ->
+            match toFile outputPath ini with
             | Ok _ -> File.ReadAllText outputPath
             | Error error -> error
         | Error error -> error
@@ -87,12 +87,12 @@ let ``fromFile and toFile`` () =
 
 [<Fact>]
 let ``if a value is present value returns some value`` () =
-    let reader = new StringReader(input)
+    use reader = new StringReader(input)
 
     let result =
         match fromReader reader with
-        | Ok config ->
-            match find "foo" "f-key" config with
+        | Ok ini ->
+            match find "foo" "f-key" ini with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"
@@ -101,12 +101,12 @@ let ``if a value is present value returns some value`` () =
 
 [<Fact>]
 let ``if no section is present value returns none`` () =
-    let reader = new StringReader(input)
+    use reader = new StringReader(input)
 
     let result =
         match fromReader reader with
-        | Ok config ->
-            match find "boo" "key" config with
+        | Ok ini ->
+            match find "boo" "key" ini with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"
@@ -115,12 +115,12 @@ let ``if no section is present value returns none`` () =
 
 [<Fact>]
 let ``if no value is present value returns none`` () =
-    let reader = new StringReader(input)
+    use reader = new StringReader(input)
 
     let result =
         match fromReader reader with
-        | Ok config ->
-            match find "foo" "x-key" config with
+        | Ok ini ->
+            match find "foo" "x-key" ini with
             | Some value -> value
             | None -> "none"
         | Error _ -> "error"
@@ -129,28 +129,28 @@ let ``if no value is present value returns none`` () =
 
 [<Fact>]
 let ``findNested returns value from global section`` () =
-    let config =
+    let ini =
         empty
         |> add "" "key" "value"
         |> add "" "g-key" "g-value"
         |> add ".foo" "g-key" "f-value"
 
-    let value = config |> findNested ".foo" "key"
-    let fValue = config |> findNested ".foo" "g-key"
+    let value = ini |> findNested ".foo" "key"
+    let fValue = ini |> findNested ".foo" "g-key"
 
     Assert.Equal("value", value.Value)
     Assert.Equal("f-value", fValue.Value)
 
 [<Fact>]
 let ``findNested returns value from parent section`` () =
-    let config =
+    let ini =
         empty
         |> add "foo" "key" "value"
         |> add "foo" "f-key" "f-value"
         |> add "foo.bar" "f-key" "b-value"
 
-    let value = config |> findNested "foo.bar" "key"
-    let bValue = config |> findNested "foo.bar" "f-key"
+    let value = ini |> findNested "foo.bar" "key"
+    let bValue = ini |> findNested "foo.bar" "f-key"
 
     Assert.Equal("value", value.Value)
     Assert.Equal("b-value", bValue.Value)
