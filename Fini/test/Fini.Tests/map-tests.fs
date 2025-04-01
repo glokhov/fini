@@ -1,156 +1,127 @@
 module Map.Tests
 
 open System.IO
-open Fini.Ini
+open Fini.Map
 open Xunit
 
-let input =
-    "
-# comment
-g-key=g-value
-[foo.bar]
-f-key=f-b-value
-a-key=a-value
-g-key=g-b-value
-[foo]
-o-key=o-value
-f-key=f-value
-[bar]
-b-key=b-value
-g-key=g-b-value"
-
-let output =
-    "g-key=g-value
-[bar]
-b-key=b-value
-g-key=g-b-value
-[foo]
-f-key=f-value
-o-key=o-value
-[foo.bar]
-a-key=a-value
-f-key=f-b-value
-g-key=g-b-value
-"
+// read and write
 
 [<Fact>]
-let ``fromReader and toWriter returns error`` () =
-    use reader = new StringReader(input)
-    use writer = new StringWriter()
+let ``appendFromFile then toFile`` () =
+    let temp = Path.GetTempFileName()
 
-    writer.Close()
+    match empty |> appendFromFile "input.ini" with
+    | Ok map -> map |> toFile temp |> ignore
+    | Error _ -> Assert.Fail()
 
-    let str =
-        match fromReader reader with
-        | Ok ini ->
-            match toWriter writer ini with
-            | Ok _ -> writer.ToString()
-            | Error error -> error
-        | Error error -> error
+    let output = File.ReadAllText "output.ini"
+    let result = File.ReadAllText temp
 
-    Assert.Equal("Cannot write to a closed TextWriter.", str)
+    File.Delete temp
 
-[<Fact>]
-let ``fromReader and toWriter`` () =
-    use reader = new StringReader(input)
-    use writer = new StringWriter()
+    Assert.Equal(output, result)
 
-    let str =
-        match fromReader reader with
-        | Ok ini ->
-            match toWriter writer ini with
-            | Ok _ -> writer.ToString()
-            | Error error -> error
-        | Error error -> error
-
-    Assert.Equal(output, str)
+// find
 
 [<Fact>]
-let ``fromFile and toFile`` () =
-    let inputPath = Path.GetTempFileName()
-    let outputPath = Path.GetTempFileName()
+let ``findNested returns values from parent section`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
 
-    File.WriteAllText(inputPath, input)
+    let a =
+        match map |> findNested "foo.bar" "a-key" with
+        | Some v -> v
+        | None -> ""
 
-    let str =
-        match fromFile inputPath with
-        | Ok ini ->
-            match toFile outputPath ini with
-            | Ok _ -> File.ReadAllText outputPath
-            | Error error -> error
-        | Error error -> error
+    let f =
+        match map |> findNested "foo.bar" "f-key" with
+        | Some v -> v
+        | None -> ""
 
-    File.Delete inputPath
-    File.Delete outputPath
+    let o =
+        match map |> findNested "foo.bar" "o-key" with
+        | Some v -> v
+        | None -> ""
 
-    Assert.Equal(output, str)
+    Assert.Equal("a-value", a)
+    Assert.Equal("f-b-value", f)
+    Assert.Equal("o-value", o)
 
-[<Fact>]
-let ``if a value is present value returns some value`` () =
-    use reader = new StringReader(input)
-
-    let result =
-        match fromReader reader with
-        | Ok ini ->
-            match find "foo" "f-key" ini with
-            | Some value -> value
-            | None -> "none"
-        | Error _ -> "error"
-
-    Assert.Equal("f-value", result)
+// parameters
 
 [<Fact>]
-let ``if no section is present value returns none`` () =
-    use reader = new StringReader(input)
-
-    let result =
-        match fromReader reader with
-        | Ok ini ->
-            match find "boo" "key" ini with
-            | Some value -> value
-            | None -> "none"
-        | Error _ -> "error"
-
-    Assert.Equal("none", result)
-
-[<Fact>]
-let ``if no value is present value returns none`` () =
-    use reader = new StringReader(input)
-
-    let result =
-        match fromReader reader with
-        | Ok ini ->
-            match find "foo" "x-key" ini with
-            | Some value -> value
-            | None -> "none"
-        | Error _ -> "error"
-
-    Assert.Equal("none", result)
+let ``parameters returns triples of section/key/value`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
+    
+    let list = parameters map |> List.ofSeq
+    let head = list |> List.head
+    let last = list |> List.last
+    
+    Assert.Equal(8, list.Length)
+    Assert.Equal(("", "g-key", "g-value"), head)
+    Assert.Equal(("foo.bar", "g-key", "g-f-b-value"), last)
 
 [<Fact>]
-let ``findNested returns value from global section`` () =
-    let ini =
-        empty
-        |> add "" "key" "value"
-        |> add "" "g-key" "g-value"
-        |> add ".foo" "g-key" "f-value"
-
-    let value = ini |> findNested ".foo" "key"
-    let fValue = ini |> findNested ".foo" "g-key"
-
-    Assert.Equal("value", value.Value)
-    Assert.Equal("f-value", fValue.Value)
+let ``sections returns section names`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
+    
+    let list = sections map |> List.ofSeq
+    let head = list |> List.head
+    let last = list |> List.last
+    
+    Assert.Equal(4, list.Length)
+    Assert.Equal("", head)
+    Assert.Equal("foo.bar", last)
 
 [<Fact>]
-let ``findNested returns value from parent section`` () =
-    let ini =
-        empty
-        |> add "foo" "key" "value"
-        |> add "foo" "f-key" "f-value"
-        |> add "foo.bar" "f-key" "b-value"
+let ``keys returns keys of a given section`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
+    
+    let list = keys "foo.bar" map |> List.ofSeq
+    let head = list |> List.head
+    let last = list |> List.last
+    
+    Assert.Equal(3, list.Length)
+    Assert.Equal("a-key", head)
+    Assert.Equal("g-key", last)
 
-    let value = ini |> findNested "foo.bar" "key"
-    let bValue = ini |> findNested "foo.bar" "f-key"
+[<Fact>]
+let ``values returns values of a given section`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
+    
+    let list = values "foo.bar" map |> List.ofSeq
+    let head = list |> List.head
+    let last = list |> List.last
+    
+    Assert.Equal(3, list.Length)
+    Assert.Equal("a-value", head)
+    Assert.Equal("g-f-b-value", last)
 
-    Assert.Equal("value", value.Value)
-    Assert.Equal("b-value", bValue.Value)
+[<Fact>]
+let ``section returns a key/value map`` () =
+    let map =
+        match empty |> appendFromFile "input.ini" with
+        | Ok map -> map
+        | Error _ -> empty
+    
+    let map = section "foo.bar" map
+    let head = map |> find "a-key"
+    let last = map |> find "g-key"
+    
+    Assert.Equal(3, map.Count)
+    Assert.Equal("a-value", head)
+    Assert.Equal("g-f-b-value", last)

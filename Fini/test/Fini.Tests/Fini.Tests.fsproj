@@ -15,6 +15,13 @@
         <ProjectReference Include="..\..\src\Fini\Fini.fsproj" />
     </ItemGroup>
     <ItemGroup>
+      <Compile Include="ini-tests.fs" />
+      <None Include="input.ini">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Include="output.ini">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
       <Compile Include="io-tests.fs" />
       <Compile Include="line-tests.fs" />
       <Compile Include="map-tests.fs" />

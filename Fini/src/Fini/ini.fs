@@ -28,7 +28,7 @@ type Ini(map: Map<string * string, string>) =
     member _.FindNested(section: string, key: string) : string option = map |> Map.findNested section key
     member _.Find(section: string, key: string) : string option = map.TryFind(section, key)
     member _.Add(section: string, key: string, value: string) : Ini = map.Add((section, key), value) |> Ini
-    member _.Change(section: string, key: string, value: string) : Ini = map.Change((section, key), (fun _ -> Some value)) |> Ini
+    member _.Change(section: string, key: string, change: string option -> string option) : Ini = map.Change((section, key), change) |> Ini
     member _.Remove(section: string, key: string) : Ini = map.Remove(section, key) |> Ini
 
     member _.ToWriter(writer: TextWriter) : Result<unit, string> = map |> Map.toWriter writer
@@ -81,7 +81,7 @@ module Ini =
     let add (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Add(section, key, value)
 
     [<CompiledName("Change")>]
-    let change (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Change(section, key, value)
+    let change (section: string) (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.Change(section, key, change)
 
     [<CompiledName("Remove")>]
     let remove (section: string) (key: string) (ini: Ini) : Ini = ini.Remove(section, key)

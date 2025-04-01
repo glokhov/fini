@@ -27,7 +27,7 @@ module internal Map =
     let section(section: string) (map: Map<string * string, string>) : Map<string, string> =
         Seq.zip (map |> keys section) (map |> values section) |> Seq.toList |> Map.ofList
 
-    // reader
+    // read
 
     let rec private append (lines: Line list) (section: string) (map: Map<string * string, string>) : Result<Map<string * string, string>, string> =
         match lines with
@@ -52,7 +52,7 @@ module internal Map =
             use reader = reader
             appendFromReader reader map)
 
-    // writer
+    // write
 
     let private formatSection (p: (string * string) * string) : string = p |> sec |> (fun section -> $"[{section}]")
     let private formatParameter (p: (string * string) * string) : string = p |> kvl |> (fun parameter -> $"{fst parameter}={snd parameter}")
