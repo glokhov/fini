@@ -299,6 +299,34 @@ let ``if don't exist, remove adds new value successfully`` () =
     Assert.Equal(8, Ini.count ini)
     Assert.Equal("none", value)
 
+// global
+
+[<Fact>]
+let ``global section find/add/change/remove tests`` () =
+    let ini = Ini.empty |> Ini.addGlobal "key" "value"
+    
+    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
+    
+    Assert.Equal("value", value)
+    
+    let ini = ini |> Ini.addGlobal "key" "replaced"
+    
+    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
+    
+    Assert.Equal("replaced", value)
+    
+    let ini = ini |> Ini.changeGlobal "key" (fun _ -> Some "changed")
+    
+    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
+    
+    Assert.Equal("changed", value)
+    
+    let ini = ini |> Ini.removeGlobal "key"
+    
+    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
+    
+    Assert.Equal("none", value)
+
 // write
 
 [<Fact>]

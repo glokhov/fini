@@ -24,12 +24,17 @@ type Ini(map: Map<string * string, string>) =
     member _.Keys(section: string) : string seq = map |> Map.keys section
     member _.Values(section: string) : string seq = map |> Map.values section
     member _.Section(section: string) : Map<string, string> = map |> Map.section section
+    member _.GlobalSection : Map<string, string> = map |> Map.section ""
 
-    member _.FindNested(section: string, key: string) : string option = map |> Map.findNested section key
     member _.Find(section: string, key: string) : string option = map.TryFind(section, key)
+    member _.FindGlobal(key: string) : string option = map.TryFind("", key)
+    member _.FindNested(section: string, key: string) : string option = map |> Map.findNested section key
     member _.Add(section: string, key: string, value: string) : Ini = map.Add((section, key), value) |> Ini
+    member _.AddGlobal(key: string, value: string) : Ini = map.Add(("", key), value) |> Ini
     member _.Change(section: string, key: string, change: string option -> string option) : Ini = map.Change((section, key), change) |> Ini
+    member _.ChangeGlobal(key: string, change: string option -> string option) : Ini = map.Change(("", key), change) |> Ini
     member _.Remove(section: string, key: string) : Ini = map.Remove(section, key) |> Ini
+    member _.RemoveGlobal(key: string) : Ini = map.Remove("", key) |> Ini
 
     member _.ToWriter(writer: TextWriter) : Result<unit, string> = map |> Map.toWriter writer
     member _.ToFile(path: string) : Result<unit, string> = map |> Map.toFile path
@@ -70,21 +75,36 @@ module Ini =
 
     [<CompiledName("Section")>]
     let section (section: string) (ini: Ini) : Map<string, string> = ini.Section(section)
-    
-    [<CompiledName("FindNested")>]
-    let findNested (section: string) (key: string) (ini: Ini) : string option = ini.FindNested(section, key)
+
+    [<CompiledName("GlobalSection")>]
+    let globalSection (ini: Ini) : Map<string, string> = ini.GlobalSection
 
     [<CompiledName("Find")>]
     let find (section: string) (key: string) (ini: Ini) : string option = ini.Find(section, key)
 
+    [<CompiledName("FindGlobal")>]
+    let findGlobal (key: string) (ini: Ini) : string option = ini.FindGlobal(key)
+    
+    [<CompiledName("FindNested")>]
+    let findNested (section: string) (key: string) (ini: Ini) : string option = ini.FindNested(section, key)
+
     [<CompiledName("Add")>]
     let add (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Add(section, key, value)
+
+    [<CompiledName("AddGlobal")>]
+    let addGlobal (key: string) (value: string) (ini: Ini) : Ini = ini.AddGlobal(key, value)
 
     [<CompiledName("Change")>]
     let change (section: string) (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.Change(section, key, change)
 
+    [<CompiledName("ChangeGlobal")>]
+    let changeGlobal (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.ChangeGlobal(key, change)
+
     [<CompiledName("Remove")>]
     let remove (section: string) (key: string) (ini: Ini) : Ini = ini.Remove(section, key)
+
+    [<CompiledName("RemoveGlobal")>]
+    let removeGlobal (key: string) (ini: Ini) : Ini = ini.RemoveGlobal(key)
 
     [<CompiledName("ToWriter")>]
     let toWriter (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriter writer

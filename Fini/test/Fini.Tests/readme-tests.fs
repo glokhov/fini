@@ -14,6 +14,26 @@ let ``tests for getting started`` () =
         | Ok ini -> ini
         | Error _ -> Ini.empty
 
+    // find global
+
+    let value =
+        match ini |> Ini.findGlobal "global_key" with
+        | Some value -> value
+        | None -> "none"
+
+    let equal = value = "global_value"
+
+    Debug.Assert equal
+
+    let value =
+        match ini |> Ini.findGlobal "one_key" with
+        | Some value -> value
+        | None -> "none"
+    
+    let equal = value = "none"
+    
+    Debug.Assert equal
+
     // find
 
     let value =
@@ -86,4 +106,4 @@ let ``tests for getting started`` () =
 
     // write to file
 
-    ini |> Ini.toFile "readme.ini" |> ignore
+    ini |> Ini.toFile "readme_final.ini" |> ignore

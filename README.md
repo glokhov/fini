@@ -7,6 +7,7 @@ open Fini
 ```
 Initial INI file content:
 ```ini
+global_key=global_value
 [one]
 one_key=one_value
 [one.two]
@@ -20,6 +21,26 @@ let ini =
     match Ini.fromFile "readme.ini" with
     | Ok ini -> ini
     | Error err -> Ini.empty
+```
+Call ```findGlobal``` function to get a value from global section:
+```fsharp
+let value =
+    match ini |> Ini.findGlobal "global_key" with
+    | Some value -> value
+    | None -> "none"
+
+let equal = value = "global_value"
+
+Debug.Assert equal
+
+let value =
+    match ini |> Ini.findGlobal "one_key" with
+    | Some value -> value
+    | None -> "none"
+
+let equal = value = "none"
+
+Debug.Assert equal
 ```
 Call ```find``` function to get a value from a section:
 ```fsharp
@@ -61,7 +82,7 @@ let equal = value = "two_value"
 
 Debug.Assert equal
 ```
-Call ```add``` function to replace a value in a section:
+Call ```add``` (```addGlobal```) function to replace a value in a (global) section:
 ```fsharp
 let ini = ini |> Ini.add "three" "three_key" "replaced_three_value"
 
@@ -71,7 +92,7 @@ let equal = (value = Some "replaced_three_value")
 
 Debug.Assert equal
 ```
-Call ```add``` function to add a value to a section:
+Call ```add``` (```addGlobal```) function to add a value to a (global) section:
 ```fsharp
 let ini = ini |> Ini.add "four" "four_key" "four_value"
 
@@ -81,7 +102,7 @@ let equal = (value = Some "four_value")
 
 Debug.Assert equal
 ```
-Call ```remove``` function to remove a value from a section:
+Call ```remove``` (```removeGlobal```) function to remove a value from a (global) section:
 ```fsharp
 let ini = ini |> Ini.remove "one" "one_key"
 
@@ -97,6 +118,7 @@ ini |> Ini.toFile "readme.ini" |> ignore
 ```
 Final INI file content:
 ```ini
+global_key=global_value
 [four]
 four_key=four_value
 [one.two]
