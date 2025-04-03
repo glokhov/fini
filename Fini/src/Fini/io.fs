@@ -38,9 +38,17 @@ module internal TextReader =
         }
 
 module internal TextWriter =
-    let writeLine (writer: TextWriter) (value: string) : Result<unit, string> =
-        let writeLine: string -> Result<unit, Exception> = invoke writer.WriteLine
-        writeLine value |> Result.mapError _.Message
+    let writeChar (value: char) (writer: TextWriter) : Result<TextWriter, string> =
+        let write: char -> Result<unit, Exception> = invoke writer.Write
+        write value |> Result.map (fun _ -> writer) |> Result.mapError _.Message
+
+    let writeString (value: string) (writer: TextWriter) : Result<TextWriter, string> =
+        let write: string -> Result<unit, Exception> = invoke writer.Write
+        write value |> Result.map (fun _ -> writer) |> Result.mapError _.Message
+
+    let writeLine (writer: TextWriter) : Result<TextWriter, string> =
+        let write: unit -> Result<unit, Exception> = invoke writer.WriteLine
+        write () |> Result.map (fun _ -> writer) |> Result.mapError _.Message
 
     let flush (writer: TextWriter) : Result<unit, string> =
         invoke writer.Flush () |> Result.mapError _.Message

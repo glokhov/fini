@@ -39,6 +39,9 @@ type Ini(map: Map<string * string, string>) =
     member _.ToWriter(writer: TextWriter) : Result<unit, string> = map |> Map.toWriter writer
     member _.ToFile(path: string) : Result<unit, string> = map |> Map.toFile path
 
+    member _.ToWriterPretty(writer: TextWriter) : Result<unit, string> = map |> Map.toWriterPretty writer
+    member _.ToFilePretty(path: string) : Result<unit, string> = map |> Map.toFilePretty path
+
 module Ini =
     [<CompiledName("Empty")>]
     let empty : Ini = Ini.Empty
@@ -111,3 +114,9 @@ module Ini =
 
     [<CompiledName("ToFile")>]
     let toFile (path: string) (ini: Ini) : Result<unit, string> = ini.ToFile path
+
+    [<CompiledName("ToWriterPretty")>]
+    let toWriterPretty (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriterPretty writer
+
+    [<CompiledName("ToFilePretty")>]
+    let toFilePretty (path: string) (ini: Ini) : Result<unit, string> = ini.ToFilePretty path
