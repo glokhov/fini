@@ -64,14 +64,13 @@ module internal Map =
                 |> writeParameter key value
                 |> Result.map (fun _ -> current)
 
-        let writeLinePretty (line: (string * string) * string) (section: string) (keyLength: string -> int) (writer: TextWriter) : Result<string, string> =
+        let writeLinePretty (line: (string * string) * string) (section: string) (first: bool) (keyLength: string -> int) (writer: TextWriter) : Result<string, string> =
             let current = Private.section line
             let key = Private.key line
             let value = Private.value line
             let keyLength = keyLength current
             if(current <> section) then
-                writer
-                |> IO.TextWriter.writeLine
+                if first then Ok writer else IO.TextWriter.writeLine writer
                 |> Result.bind (writeSection current)
                 |> Result.bind IO.TextWriter.writeLine
                 |> Result.bind (writeParameterPretty key value keyLength)
@@ -121,11 +120,11 @@ module internal Map =
             |> keys section
             |> Seq.map _.Length
             |> Seq.max
-        let rec loop (map: ((string * string) * string) list) (section: string) : Result<unit, string> =
+        let rec loop (map: ((string * string) * string) list) (first: bool) (section: string) : Result<unit, string> =
             match map with
             | [] -> writer |> IO.TextWriter.flush
-            | head :: tail -> writer |> Writer.writeLinePretty head section maxKeyLength |> Result.bind (loop tail) 
-        loop (Map.toList map) ""
+            | head :: tail -> writer |> Writer.writeLinePretty head section first maxKeyLength |> Result.bind (loop tail false) 
+        loop (Map.toList map) true ""
 
     let toFile (path: string) (map: Map<string * string, string>) : Result<unit, string> =
         path

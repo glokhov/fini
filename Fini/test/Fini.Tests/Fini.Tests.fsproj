@@ -27,6 +27,12 @@
         <None Include="f-output.ini">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
+        <None Include="g-input.ini">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
+        <None Include="g-output.ini">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
         <None Include="readme.ini">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>

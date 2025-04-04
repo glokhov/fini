@@ -6,7 +6,7 @@ open FInvoke.Result
 
 module internal File =
     let openText (path: string) : Result<StreamReader, string> =
-        invoke File.OpenText path |> Result.mapError _.Message
+        if File.Exists path then invoke File.OpenText path |> Result.mapError _.Message else Error "File doesn't exist."
 
     let createText (path: string) : Result<StreamWriter, string> =
         invoke File.CreateText path |> Result.mapError _.Message

@@ -376,3 +376,18 @@ let ``toFilePretty writes to a file successfully`` () =
     File.Delete temp
 
     Assert.Equal(output, result)
+
+[<Fact>]
+let ``toFilePretty writes to a file successfully 2`` () =
+    let temp = Path.GetTempFileName()
+
+    match Ini.fromFile "g-input.ini" with
+    | Ok ini -> ini |> Ini.toFilePretty temp |> ignore
+    | Error _ -> Assert.Fail()
+
+    let output = File.ReadAllText "g-output.ini"
+    let result = File.ReadAllText temp
+
+    File.Delete temp
+
+    Assert.Equal(output, result)
