@@ -3,7 +3,9 @@ namespace Fini
 open System.IO
 open Microsoft.FSharp.Core
 
+[<System.Diagnostics.DebuggerDisplay("Count = {Count}")>]
 [<Sealed>]
+[<CompiledName("FSharpIni")>]
 type Ini(map: Map<string * string, string>) =
     static let empty: Ini = Ini Map.empty
     static member Empty: Ini = empty
@@ -42,81 +44,97 @@ type Ini(map: Map<string * string, string>) =
     member _.ToWriterPretty(writer: TextWriter) : Result<unit, string> = map |> Map.toWriterPretty writer
     member _.ToFilePretty(path: string) : Result<unit, string> = map |> Map.toFilePretty path
 
+    override _.ToString() : string = map |> Map.toString
+    member _.ToStringPretty() : string = map |> Map.toStringPretty
+
+    interface System.Collections.Generic.IEnumerable<string * string * string> with
+        member _.GetEnumerator() : System.Collections.Generic.IEnumerator<string * string * string> = (Map.parameters map).GetEnumerator()
+
+    interface System.Collections.IEnumerable with
+        member _.GetEnumerator() : System.Collections.IEnumerator = (Map.parameters map).GetEnumerator() :> System.Collections.IEnumerator
+
+[<RequireQualifiedAccess>]
 module Ini =
     [<CompiledName("Empty")>]
     let empty : Ini = Ini.Empty
 
     [<CompiledName("FromReader")>]
-    let fromReader (reader: TextReader) : Result<Ini, string> = Ini.FromReader(reader)
+    let inline fromReader (reader: TextReader) : Result<Ini, string> = Ini.FromReader(reader)
 
     [<CompiledName("FromFile")>]
-    let fromFile (path: string) : Result<Ini, string> = Ini.FromFile(path)
+    let inline fromFile (path: string) : Result<Ini, string> = Ini.FromFile(path)
     
     [<CompiledName("AppendFromReader")>]
-    let appendFromReader (reader: TextReader) (ini: Ini) : Result<Ini, string> = ini.AppendFromReader(reader)
+    let inline appendFromReader (reader: TextReader) (ini: Ini) : Result<Ini, string> = ini.AppendFromReader(reader)
 
     [<CompiledName("AppendFromFile")>]
-    let appendFromFile (path: string) (ini: Ini) : Result<Ini, string> = ini.AppendFromFile(path)
+    let inline appendFromFile (path: string) (ini: Ini) : Result<Ini, string> = ini.AppendFromFile(path)
 
     [<CompiledName("IsEmpty")>]
-    let isEmpty (ini: Ini) : bool = ini.IsEmpty
+    let inline isEmpty (ini: Ini) : bool = ini.IsEmpty
 
     [<CompiledName("Count")>]
-    let count (ini: Ini) : int = ini.Count
+    let inline count (ini: Ini) : int = ini.Count
 
     [<CompiledName("Parameters")>]
-    let parameters (ini: Ini) : (string * string * string) seq = ini.Parameters
+    let inline parameters (ini: Ini) : (string * string * string) seq = ini.Parameters
 
     [<CompiledName("Sections")>]
-    let sections (ini: Ini) : string seq = ini.Sections
+    let inline sections (ini: Ini) : string seq = ini.Sections
 
     [<CompiledName("Keys")>]
-    let keys (section: string) (ini: Ini) : string seq = ini.Keys(section)
+    let inline keys (section: string) (ini: Ini) : string seq = ini.Keys(section)
 
     [<CompiledName("Values")>]
-    let values (section: string) (ini: Ini) : string seq = ini.Values(section)
+    let inline values (section: string) (ini: Ini) : string seq = ini.Values(section)
 
     [<CompiledName("Section")>]
-    let section (section: string) (ini: Ini) : Map<string, string> = ini.Section(section)
+    let inline section (section: string) (ini: Ini) : Map<string, string> = ini.Section(section)
 
     [<CompiledName("GlobalSection")>]
-    let globalSection (ini: Ini) : Map<string, string> = ini.GlobalSection
+    let inline globalSection (ini: Ini) : Map<string, string> = ini.GlobalSection
 
     [<CompiledName("Find")>]
-    let find (section: string) (key: string) (ini: Ini) : string option = ini.Find(section, key)
+    let inline find (section: string) (key: string) (ini: Ini) : string option = ini.Find(section, key)
 
     [<CompiledName("FindGlobal")>]
-    let findGlobal (key: string) (ini: Ini) : string option = ini.FindGlobal(key)
+    let inline findGlobal (key: string) (ini: Ini) : string option = ini.FindGlobal(key)
     
     [<CompiledName("FindNested")>]
-    let findNested (section: string) (key: string) (ini: Ini) : string option = ini.FindNested(section, key)
+    let inline findNested (section: string) (key: string) (ini: Ini) : string option = ini.FindNested(section, key)
 
     [<CompiledName("Add")>]
-    let add (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Add(section, key, value)
+    let inline add (section: string) (key: string) (value: string) (ini: Ini) : Ini = ini.Add(section, key, value)
 
     [<CompiledName("AddGlobal")>]
-    let addGlobal (key: string) (value: string) (ini: Ini) : Ini = ini.AddGlobal(key, value)
+    let inline addGlobal (key: string) (value: string) (ini: Ini) : Ini = ini.AddGlobal(key, value)
 
     [<CompiledName("Change")>]
-    let change (section: string) (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.Change(section, key, change)
+    let inline change (section: string) (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.Change(section, key, change)
 
     [<CompiledName("ChangeGlobal")>]
-    let changeGlobal (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.ChangeGlobal(key, change)
+    let inline changeGlobal (key: string) (change: string option -> string option) (ini: Ini) : Ini = ini.ChangeGlobal(key, change)
 
     [<CompiledName("Remove")>]
-    let remove (section: string) (key: string) (ini: Ini) : Ini = ini.Remove(section, key)
+    let inline remove (section: string) (key: string) (ini: Ini) : Ini = ini.Remove(section, key)
 
     [<CompiledName("RemoveGlobal")>]
-    let removeGlobal (key: string) (ini: Ini) : Ini = ini.RemoveGlobal(key)
+    let inline removeGlobal (key: string) (ini: Ini) : Ini = ini.RemoveGlobal(key)
 
     [<CompiledName("ToWriter")>]
-    let toWriter (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriter writer
+    let inline toWriter (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriter writer
 
     [<CompiledName("ToFile")>]
-    let toFile (path: string) (ini: Ini) : Result<unit, string> = ini.ToFile path
+    let inline toFile (path: string) (ini: Ini) : Result<unit, string> = ini.ToFile path
 
     [<CompiledName("ToWriterPretty")>]
-    let toWriterPretty (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriterPretty writer
+    let inline toWriterPretty (writer: TextWriter) (ini: Ini) : Result<unit, string> = ini.ToWriterPretty writer
 
     [<CompiledName("ToFilePretty")>]
-    let toFilePretty (path: string) (ini: Ini) : Result<unit, string> = ini.ToFilePretty path
+    let inline toFilePretty (path: string) (ini: Ini) : Result<unit, string> = ini.ToFilePretty path
+
+    [<CompiledName("ToString")>]
+    let inline toString (ini: Ini) : string = ini.ToString()
+
+    [<CompiledName("ToStringPretty")>]
+    let inline toStringPretty (ini: Ini) : string = ini.ToStringPretty()

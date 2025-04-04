@@ -391,3 +391,25 @@ let ``toFilePretty writes to a file successfully 2`` () =
     File.Delete temp
 
     Assert.Equal(output, result)
+
+[<Fact>]
+let ``toString returns simple string`` () =
+    let result =
+        match Ini.fromFile "input.ini" with
+        | Ok ini -> ini |> Ini.toString
+        | Error _ -> "epic fail"
+
+    let output = File.ReadAllText "output.ini"
+
+    Assert.Equal(output.TrimEnd(), result)
+
+[<Fact>]
+let ``toStringPretty returns pretty string`` () =
+    let result =
+        match Ini.fromFile "f-input.ini" with
+        | Ok ini -> ini |> Ini.toStringPretty
+        | Error _ -> "epic fail"
+
+    let output = File.ReadAllText "f-output.ini"
+
+    Assert.Equal(output.TrimEnd(), result)

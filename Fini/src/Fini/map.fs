@@ -80,6 +80,19 @@ module internal Map =
                 |> writeParameterPretty key value keyLength
                 |> Result.map (fun _ -> current)
 
+        let toFile (path: string) (map: Map<string * string, string>) (toWriter: TextWriter -> Map<string * string, string> -> Result<unit, string>) : Result<unit, string> =
+            path
+            |> IO.File.createText
+            |> Result.bind (fun writer ->
+                use writer = writer
+                toWriter writer map)
+
+        let toString (map: Map<string * string, string>) (toWriter: TextWriter -> Map<string * string, string> -> Result<unit, string>) : string =
+            use writer = new StringWriter()
+            match toWriter writer map with
+            | Ok _ -> writer.ToString().TrimEnd()
+            | Error err -> err
+
     // parameters
 
     let parameters (map: Map<string * string, string>) : (string * string * string) seq = map |> Seq.map (fun prm -> fst prm.Key, snd prm.Key, prm.Value)
@@ -126,19 +139,13 @@ module internal Map =
             | head :: tail -> writer |> Writer.writeLinePretty head section first maxKeyLength |> Result.bind (loop tail false) 
         loop (Map.toList map) true ""
 
-    let toFile (path: string) (map: Map<string * string, string>) : Result<unit, string> =
-        path
-        |> IO.File.createText
-        |> Result.bind (fun writer ->
-            use writer = writer
-            toWriter writer map)
+    let inline toFile (path: string) (map: Map<string * string, string>) : Result<unit, string> = Writer.toFile path map toWriter
+    let inline toFilePretty (path: string) (map: Map<string * string, string>) : Result<unit, string> = Writer.toFile path map toWriterPretty
 
-    let toFilePretty (path: string) (map: Map<string * string, string>) : Result<unit, string> =
-        path
-        |> IO.File.createText
-        |> Result.bind (fun writer ->
-            use writer = writer
-            toWriterPretty writer map)
+    // to string
+
+    let inline toString (map: Map<string * string, string>) : string = Writer.toString map toWriter
+    let inline toStringPretty (map: Map<string * string, string>) : string = Writer.toString map toWriterPretty
 
     // find
 

@@ -1,25 +1,7 @@
 module Map.Tests
 
-open System.IO
 open Fini.Map
 open Xunit
-
-// read and write
-
-[<Fact>]
-let ``appendFromFile then toFile`` () =
-    let temp = Path.GetTempFileName()
-
-    match empty |> appendFromFile "input.ini" with
-    | Ok map -> map |> toFile temp |> ignore
-    | Error _ -> Assert.Fail()
-
-    let output = File.ReadAllText "output.ini"
-    let result = File.ReadAllText temp
-
-    File.Delete temp
-
-    Assert.Equal(output, result)
 
 // find
 
