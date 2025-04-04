@@ -56,5 +56,4 @@ module internal Line =
         | ParseLine line -> Ok line
         | _ -> Error $"Cannot parse line {index + 1}: {text}."
 
-    let fromResult (index: int, result: Result<string, string>) : Result<Line, string> =
-        result |> Result.bind (fun line -> parseLine (index, line))
+    let inline fromResult (index: int, result: Result<string, string>) : Result<Line, string> = Result.bind (fun line -> parseLine (index, line)) result

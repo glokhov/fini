@@ -21,7 +21,7 @@
         <None Include="../../../README.md" Pack="true" Visible="true" PackagePath="/" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="FInvoke" Version="0.2.0" />
+        <PackageReference Include="FInvoke" Version="0.3.0" />
         <PackageReference Include="TakeUntil" Version="0.1.1" />
     </ItemGroup>
     <ItemGroup>

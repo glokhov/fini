@@ -5,10 +5,10 @@ open Fini
 
 module internal Map =
     module private Private =
-        let section (prm: (string * string) * string) : string = prm |> fst |> fst
-        let key (prm: (string * string) * string) : string = prm |> fst |> snd
-        let value (prm: (string * string) * string) : string = prm |> snd
-        let keyValue (prm: (string * string) * string) : string * string = key prm, value prm
+        let inline section (prm: (string * string) * string) : string = prm |> fst |> fst
+        let inline key (prm: (string * string) * string) : string = prm |> fst |> snd
+        let inline value (prm: (string * string) * string) : string = prm |> snd
+        let inline keyValue (prm: (string * string) * string) : string * string = key prm, value prm
 
         let rec subsections (section: string) : string list =
             let rec loop (section: string) (acc: string list) =
@@ -34,21 +34,21 @@ module internal Map =
             |> IO.TextWriter.writeChar '['
             |> Result.bind (IO.TextWriter.writeString sec)
             |> Result.bind (IO.TextWriter.writeChar ']')
-            |> Result.bind IO.TextWriter.writeLine
+            |> Result.bind IO.TextWriter.writeEol
 
         let writeParameter (key: string) (value: string) (writer: TextWriter) : Result<TextWriter, string> =
             writer
             |> IO.TextWriter.writeString key
             |> Result.bind (IO.TextWriter.writeChar '=')
             |> Result.bind (IO.TextWriter.writeString value)
-            |> Result.bind IO.TextWriter.writeLine
+            |> Result.bind IO.TextWriter.writeEol
 
         let writeParameterPretty (key: string) (value: string) (keyLength: int) (writer: TextWriter) : Result<TextWriter, string> =
             writer
             |> IO.TextWriter.writeString(key.PadRight(keyLength))
             |> Result.bind (IO.TextWriter.writeString " = ")
             |> Result.bind (IO.TextWriter.writeString value)
-            |> Result.bind IO.TextWriter.writeLine
+            |> Result.bind IO.TextWriter.writeEol
 
         let writeLine (line: (string * string) * string) (section: string) (writer: TextWriter) : Result<string, string> =
             let current = Private.section line
@@ -70,9 +70,9 @@ module internal Map =
             let value = Private.value line
             let keyLength = keyLength current
             if(current <> section) then
-                if first then Ok writer else IO.TextWriter.writeLine writer
+                if first then Ok writer else IO.TextWriter.writeEol writer
                 |> Result.bind (writeSection current)
-                |> Result.bind IO.TextWriter.writeLine
+                |> Result.bind IO.TextWriter.writeEol
                 |> Result.bind (writeParameterPretty key value keyLength)
                 |> Result.map (fun _ -> current)
             else
@@ -95,11 +95,20 @@ module internal Map =
 
     // parameters
 
-    let parameters (map: Map<string * string, string>) : (string * string * string) seq = map |> Seq.map (fun prm -> fst prm.Key, snd prm.Key, prm.Value)
-    let sections (map: Map<string * string, string>) : string seq = map |> parameters |> Seq.map (fun (s, _ ,_) -> s) |> Seq.distinct
-    let keys (section: string) (map: Map<string * string, string>) : string seq = map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, k ,_) -> k)
-    let values (section: string) (map: Map<string * string, string>) : string seq = map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, _ ,v) -> v)
-    let section(section: string) (map: Map<string * string, string>) : Map<string, string> = Seq.zip (map |> keys section) (map |> values section) |> Seq.toList |> Map.ofList
+    let parameters (map: Map<string * string, string>) : (string * string * string) seq =
+        map |> Seq.map (fun prm -> fst prm.Key, snd prm.Key, prm.Value)
+
+    let sections (map: Map<string * string, string>) : string seq =
+        map |> parameters |> Seq.map (fun (s, _ ,_) -> s) |> Seq.distinct
+
+    let keys (section: string) (map: Map<string * string, string>) : string seq =
+        map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, k ,_) -> k)
+
+    let values (section: string) (map: Map<string * string, string>) : string seq =
+        map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, _ ,v) -> v)
+
+    let section(section: string) (map: Map<string * string, string>) : Map<string, string> =
+        Seq.zip (map |> keys section) (map |> values section) |> Seq.toList |> Map.ofList
 
     // read
 

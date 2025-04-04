@@ -1,10 +1,10 @@
 module Line.Tests
 
 open Fini
-open Microsoft.FSharp.Core
-open FsUnit
-open Xunit
 open Fini.Line
+open FsUnit
+open Microsoft.FSharp.Core
+open Xunit
 
 [<Fact>]
 let ``if key missing ParseLine returns none`` () =

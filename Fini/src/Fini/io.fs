@@ -5,14 +5,14 @@ open System.IO
 open FInvoke.Result
 
 module internal File =
-    let openText (path: string) : Result<StreamReader, string> =
-        if File.Exists path then invoke File.OpenText path |> Result.mapError _.Message else Error "File doesn't exist."
+    let inline openText (path: string) : Result<StreamReader, string> =
+        if File.Exists path then invoke File.OpenText path |> Result.mapError _.Message else Error $"File doesn't exist: {path}."
 
-    let createText (path: string) : Result<StreamWriter, string> =
+    let inline createText (path: string) : Result<StreamWriter, string> =
         invoke File.CreateText path |> Result.mapError _.Message
 
 module internal TextReader =
-    let private readLine (reader: TextReader) : Result<string, string> =
+    let inline private readLine (reader: TextReader) : Result<string, string> =
         invoke reader.ReadLine () |> Result.mapError _.Message
 
     let readLines (reader: TextReader) : Result<string, string> seq =
@@ -38,17 +38,17 @@ module internal TextReader =
         }
 
 module internal TextWriter =
-    let writeChar (value: char) (writer: TextWriter) : Result<TextWriter, string> =
+    let inline writeChar (value: char) (writer: TextWriter) : Result<TextWriter, string> =
         let write: char -> Result<unit, Exception> = invoke writer.Write
         write value |> Result.map (fun _ -> writer) |> Result.mapError _.Message
 
-    let writeString (value: string) (writer: TextWriter) : Result<TextWriter, string> =
+    let inline writeString (value: string) (writer: TextWriter) : Result<TextWriter, string> =
         let write: string -> Result<unit, Exception> = invoke writer.Write
         write value |> Result.map (fun _ -> writer) |> Result.mapError _.Message
 
-    let writeLine (writer: TextWriter) : Result<TextWriter, string> =
+    let inline writeEol (writer: TextWriter) : Result<TextWriter, string> =
         let write: unit -> Result<unit, Exception> = invoke writer.WriteLine
         write () |> Result.map (fun _ -> writer) |> Result.mapError _.Message
 
-    let flush (writer: TextWriter) : Result<unit, string> =
+    let inline flush (writer: TextWriter) : Result<unit, string> =
         invoke writer.Flush () |> Result.mapError _.Message

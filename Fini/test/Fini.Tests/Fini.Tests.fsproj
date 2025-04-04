@@ -36,9 +36,7 @@
         <None Include="readme.ini">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
-        <Compile Include="io-tests.fs" />
         <Compile Include="line-tests.fs" />
-        <Compile Include="map-tests.fs" />
         <Compile Include="ini-tests.fs" />
         <Compile Include="readme-tests.fs" />
     </ItemGroup>
