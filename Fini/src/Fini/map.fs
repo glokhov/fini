@@ -1,5 +1,6 @@
 namespace Fini
 
+open System.Collections.Generic
 open System.IO
 open Fini
 
@@ -93,22 +94,56 @@ module internal Map =
             | Ok _ -> writer.ToString().TrimEnd()
             | Error err -> err
 
-    // parameters
+    // of seq, list, array
 
-    let parameters (map: Map<string * string, string>) : (string * string * string) seq =
+    let ofList (l: (string * string * string) list) : Map<string * string, string> =
+        List.fold (fun acc (s, k, v) -> Map.add (s, k) v acc) Map.empty l
+
+    let ofArray (a: (string * string * string) array) : Map<string * string, string> =
+        let mutable m = Map.empty
+        for s, k, v in a do
+            m <- Map.add (s, k) v m
+        m
+
+    let rec fromEnumerator (acc: Map<string * string, string>) (e: IEnumerator<string * string * string>) : Map<string * string, string> =
+        if e.MoveNext() then
+            let section, key, value = e.Current
+            fromEnumerator (acc.Add((section, key), value)) e
+        else
+            acc
+
+    let ofSeq (c: (string * string * string) seq) : Map<string * string, string> =
+        match c with
+        | :? ((string * string * string) list) as xs -> ofList xs
+        | :? ((string * string * string) array) as xs -> ofArray xs
+        | _ ->
+            use e = c.GetEnumerator()
+            fromEnumerator Map.empty e
+
+    // to seq, list, array
+
+    let toSeq (map: Map<string * string, string>) : (string * string * string) seq =
         map |> Seq.map (fun prm -> fst prm.Key, snd prm.Key, prm.Value)
 
+    let toList (map: Map<string * string, string>) : (string * string * string) list =
+        map |> toSeq |> Seq.toList
+
+    let toArray (map: Map<string * string, string>) : (string * string * string) array =
+        map |> toSeq |> Seq.toArray
+
+    // sections, keys and values
+
     let sections (map: Map<string * string, string>) : string seq =
-        map |> parameters |> Seq.map (fun (s, _ ,_) -> s) |> Seq.distinct
+        map |> toSeq |> Seq.map (fun (s, _ ,_) -> s) |> Seq.distinct
 
     let keys (section: string) (map: Map<string * string, string>) : string seq =
-        map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, k ,_) -> k)
+        map |> toSeq |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, k ,_) -> k)
 
     let values (section: string) (map: Map<string * string, string>) : string seq =
-        map |> parameters |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, _ ,v) -> v)
+        map |> toSeq |> Seq.filter (fun (s, _ ,_) -> s = section) |> Seq.map (fun (_, _ ,v) -> v)
 
     let section(section: string) (map: Map<string * string, string>) : Map<string, string> =
-        Seq.zip (map |> keys section) (map |> values section) |> Seq.toList |> Map.ofList
+        Seq.zip (keys section map) (values section map) |> Map.ofSeq
 
     // read
 

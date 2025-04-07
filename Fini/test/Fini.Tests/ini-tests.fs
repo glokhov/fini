@@ -61,22 +61,152 @@ let ``appendFromFile reads from a file successfully`` () =
     Ini.isEmpty ini |> should be False
     Ini.count ini |> should equal 9
 
-// parameters
+// to
 
 [<Fact>]
-let ``parameters returns triples of section/key/value`` () =
+let ``toSeq returns triples of section/key/value`` () =
     let ini =
         match Ini.fromFile "input.ini" with
         | Ok ini -> ini
         | Error _ -> Ini.empty
 
-    let list = Ini.parameters ini |> List.ofSeq
+    let sequence = Ini.toSeq ini
+    let head = sequence |> Seq.head
+    let last = sequence |> Seq.last
+
+    sequence |> Seq.length |> should equal 8
+    head |> should equal ("", "g-key", "g-value")
+    last |> should equal ("foo.bar", "g-key", "g-f-b-value")
+
+[<Fact>]
+let ``toList returns triples of section/key/value`` () =
+    let ini =
+        match Ini.fromFile "input.ini" with
+        | Ok ini -> ini
+        | Error _ -> Ini.empty
+
+    let list = Ini.toList ini
     let head = list |> List.head
     let last = list |> List.last
-    
+
     list.Length |> should equal 8
     head |> should equal ("", "g-key", "g-value")
     last |> should equal ("foo.bar", "g-key", "g-f-b-value")
+
+[<Fact>]
+let ``toArray returns triples of section/key/value`` () =
+    let ini =
+        match Ini.fromFile "input.ini" with
+        | Ok ini -> ini
+        | Error _ -> Ini.empty
+
+    let array = Ini.toArray ini
+    let head = array |> Array.head
+    let last = array |> Array.last
+
+    array.Length |> should equal 8
+    head |> should equal ("", "g-key", "g-value")
+    last |> should equal ("foo.bar", "g-key", "g-f-b-value")
+
+// of
+
+[<Fact>]
+let ``ofSeq returns returns ini from seq`` () =
+    let elements =
+        seq {
+            ("", "aa", "a")
+            ("", "b", "bb")
+            ("aaa", "aa", "aaa")
+            ("aaa", "bbb", "bb")
+            ("aaa", "c", "cc")
+            ("zzz", "a", "aaa")
+            ("zzz", "bb", "bbb")
+            ("zzz", "ccc", "cc")
+        }
+
+    let ini = Ini.ofSeq elements
+    
+    ini |> Ini.findGlobal "aa" |> Option.defaultValue "none" |> should equal "a"
+    ini |> Ini.find "aaa" "aa" |> Option.defaultValue "none" |> should equal "aaa"
+    ini |> Ini.find "zzz" "a" |> Option.defaultValue "none" |> should equal "aaa"
+
+[<Fact>]
+let ``ofSeq returns returns ini from list`` () =
+    let elements =
+        [
+            ("", "aa", "a")
+            ("", "b", "bb")
+            ("aaa", "aa", "aaa")
+            ("aaa", "bbb", "bb")
+            ("aaa", "c", "cc")
+            ("zzz", "a", "aaa")
+            ("zzz", "bb", "bbb")
+            ("zzz", "ccc", "cc")
+        ]
+
+    let ini = Ini.ofSeq elements
+    
+    ini |> Ini.findGlobal "b" |> Option.defaultValue "none" |> should equal "bb"
+    ini |> Ini.find "aaa" "bbb" |> Option.defaultValue "none" |> should equal "bb"
+    ini |> Ini.find "zzz" "bb" |> Option.defaultValue "none" |> should equal "bbb"
+
+[<Fact>]
+let ``ofSeq returns returns ini from array`` () =
+    let elements =
+        [|
+            ("", "aa", "a")
+            ("", "b", "bb")
+            ("aaa", "aa", "aaa")
+            ("aaa", "bbb", "bb")
+            ("aaa", "c", "cc")
+            ("zzz", "a", "aaa")
+            ("zzz", "bb", "bbb")
+            ("zzz", "ccc", "cc")
+        |]
+
+    let ini = Ini.ofSeq elements
+    
+    ini |> Ini.findGlobal "c" |> Option.defaultValue "none" |> should equal "none"
+    ini |> Ini.find "aaa" "c" |> Option.defaultValue "none" |> should equal "cc"
+    ini |> Ini.find "zzz" "ccc" |> Option.defaultValue "none" |> should equal "cc"
+
+[<Fact>]
+let ``ofList returns ini from list`` () =
+    let elements =
+        [
+            ("", "aa", "a")
+            ("", "b", "bb")
+            ("aaa", "aa", "aaa")
+            ("aaa", "bbb", "bb")
+            ("zzz", "a", "aaa")
+            ("zzz", "bb", "bbb")
+        ]
+
+    let ini = Ini.ofList elements
+    
+    ini |> Ini.findGlobal "aa" |> Option.defaultValue "none" |> should equal "a"
+    ini |> Ini.find "aaa" "aa" |> Option.defaultValue "none" |> should equal "aaa"
+    ini |> Ini.find "zzz" "a" |> Option.defaultValue "none" |> should equal "aaa"
+
+[<Fact>]
+let ``ofArray returns ini from array`` () =
+    let elements =
+        [|
+            ("", "aa", "a")
+            ("", "b", "bb")
+            ("aaa", "aa", "aaa")
+            ("aaa", "bbb", "bb")
+            ("zzz", "a", "aaa")
+            ("zzz", "bb", "bbb")
+        |]
+
+    let ini = Ini.ofArray elements
+    
+    ini |> Ini.findGlobal "b" |> Option.defaultValue "none" |> should equal "bb"
+    ini |> Ini.find "aaa" "bbb" |> Option.defaultValue "none" |> should equal "bb"
+    ini |> Ini.find "zzz" "bb" |> Option.defaultValue "none" |> should equal "bbb"
+
+// sections, keys and values
 
 [<Fact>]
 let ``sections returns section names`` () =
@@ -88,7 +218,7 @@ let ``sections returns section names`` () =
     let list = Ini.sections ini |> List.ofSeq
     let head = list |> List.head
     let last = list |> List.last
-    
+
     list.Length |> should equal 4
     head |> should equal ""
     last |> should equal "foo.bar"
@@ -103,7 +233,7 @@ let ``keys returns keys of a given section`` () =
     let list = Ini.keys "foo.bar" ini |> List.ofSeq
     let head = list |> List.head
     let last = list |> List.last
-    
+
     list.Length |> should equal 3
     head |> should equal "a-key"
     last |> should equal "g-key"
@@ -118,7 +248,7 @@ let ``values returns values of a given section`` () =
     let list = Ini.values "foo.bar" ini |> List.ofSeq
     let head = list |> List.head
     let last = list |> List.last
-    
+
     list.Length |> should equal 3
     head |> should equal "a-value"
     last |> should equal "g-f-b-value"
@@ -133,7 +263,7 @@ let ``section returns a key/value ini`` () =
     let ini = Ini.section "foo.bar" ini
     let head = ini |> Map.find "a-key"
     let last = ini |> Map.find "g-key"
-    
+
     ini.Count |> should equal 3
     head |> should equal "a-value"
     last |> should equal "g-f-b-value"
@@ -305,27 +435,39 @@ let ``if don't exist, remove adds new value successfully`` () =
 [<Fact>]
 let ``global section find/add/change/remove tests`` () =
     let ini = Ini.empty |> Ini.addGlobal "key" "value"
-    
-    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
-    
+
+    let value =
+        match ini |> Ini.findGlobal "key" with
+        | Some value -> value
+        | None -> "none"
+
     value |> should equal "value"
-    
+
     let ini = ini |> Ini.addGlobal "key" "replaced"
-    
-    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
-    
+
+    let value =
+        match ini |> Ini.findGlobal "key" with
+        | Some value -> value
+        | None -> "none"
+
     value |> should equal "replaced"
-    
+
     let ini = ini |> Ini.changeGlobal "key" (fun _ -> Some "changed")
-    
-    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
-    
+
+    let value =
+        match ini |> Ini.findGlobal "key" with
+        | Some value -> value
+        | None -> "none"
+
     value |> should equal "changed"
-    
+
     let ini = ini |> Ini.removeGlobal "key"
-    
-    let value = match ini |> Ini.findGlobal "key" with | Some value -> value | None -> "none"
-    
+
+    let value =
+        match ini |> Ini.findGlobal "key" with
+        | Some value -> value
+        | None -> "none"
+
     value |> should equal "none"
 
 // write

@@ -10,6 +10,12 @@ type Ini(map: Map<string * string, string>) =
     static let empty: Ini = Ini Map.empty
     static member Empty: Ini = empty
 
+    new(elements: (string * string * string) seq) = Ini(Map.ofSeq elements)
+
+    static member OfSeq(elements: (string * string * string) seq) : Ini = Ini(Map.ofSeq elements)
+    static member OfList(elements: (string * string * string) list) : Ini = Ini(Map.ofList elements)
+    static member OfArray(elements: (string * string * string) array) : Ini = Ini(Map.ofArray elements)
+
     static member FromReader(reader: TextReader) : Result<Ini, string> = Map.empty |> Map.appendFromReader reader |> Result.map Ini
     static member FromFile(path: string) : Result<Ini, string> = Map.empty |> Map.appendFromFile path |> Result.map Ini
 
@@ -21,7 +27,6 @@ type Ini(map: Map<string * string, string>) =
     member _.IsEmpty : bool = map.IsEmpty
     member _.Count : int = map.Count
 
-    member _.Parameters : (string * string * string) seq = map |> Map.parameters
     member _.Sections : string seq = map |> Map.sections
     member _.Keys(section: string) : string seq = map |> Map.keys section
     member _.Values(section: string) : string seq = map |> Map.values section
@@ -47,16 +52,38 @@ type Ini(map: Map<string * string, string>) =
     override _.ToString() : string = map |> Map.toString
     member _.ToStringPretty() : string = map |> Map.toStringPretty
 
+    member _.ToSeq() : (string * string * string) seq = map |> Map.toSeq
+    member _.ToList() : (string * string * string) list = map |> Map.toList
+    member _.ToArray() : (string * string * string) array = map |> Map.toArray
+
     interface System.Collections.Generic.IEnumerable<string * string * string> with
-        member _.GetEnumerator() : System.Collections.Generic.IEnumerator<string * string * string> = (Map.parameters map).GetEnumerator()
+        member _.GetEnumerator() : System.Collections.Generic.IEnumerator<string * string * string> = (Map.toSeq map).GetEnumerator()
 
     interface System.Collections.IEnumerable with
-        member _.GetEnumerator() : System.Collections.IEnumerator = (Map.parameters map).GetEnumerator() :> System.Collections.IEnumerator
+        member _.GetEnumerator() : System.Collections.IEnumerator = (Map.toSeq map).GetEnumerator() :> System.Collections.IEnumerator
 
 [<RequireQualifiedAccess>]
 module Ini =
     [<CompiledName("Empty")>]
     let empty : Ini = Ini.Empty
+
+    [<CompiledName("OfSeq")>]
+    let inline ofSeq (elements: (string * string * string) seq) : Ini = Ini.OfSeq(elements)
+
+    [<CompiledName("OfList")>]
+    let inline ofList (elements: (string * string * string) list) : Ini = Ini.OfList(elements)
+
+    [<CompiledName("OfArray")>]
+    let inline ofArray (elements: (string * string * string) array) : Ini = Ini.OfArray(elements)
+
+    [<CompiledName("ToSeq")>]
+    let inline toSeq (ini: Ini) : (string * string * string) seq = ini.ToSeq()
+
+    [<CompiledName("ToList")>]
+    let inline toList (ini: Ini) : (string * string * string) list = ini.ToList()
+
+    [<CompiledName("ToArray")>]
+    let inline toArray (ini: Ini) : (string * string * string) array = ini.ToArray()
 
     [<CompiledName("FromReader")>]
     let inline fromReader (reader: TextReader) : Result<Ini, string> = Ini.FromReader(reader)
@@ -75,9 +102,6 @@ module Ini =
 
     [<CompiledName("Count")>]
     let inline count (ini: Ini) : int = ini.Count
-
-    [<CompiledName("Parameters")>]
-    let inline parameters (ini: Ini) : (string * string * string) seq = ini.Parameters
 
     [<CompiledName("Sections")>]
     let inline sections (ini: Ini) : string seq = ini.Sections
