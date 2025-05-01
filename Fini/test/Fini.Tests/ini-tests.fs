@@ -271,6 +271,35 @@ let ``section returns a key/value ini`` () =
 // find
 
 [<Fact>]
+let ``testing subsections names with length less then two`` () =
+    let ini =
+        Ini.empty
+        |> Ini.addGlobal "a" "a"
+        |> Ini.add ".b" "b" "b"
+        |> Ini.add ".b.cc" "c" "c"
+    
+    let a_value =
+        match Ini.findNested ".b.cc" "a" ini with
+        | Some v -> v
+        | None -> "n"
+    
+    a_value |> should equal "a"
+    
+    let b_value =
+        match Ini.findNested ".b.cc" "b" ini with
+        | Some v -> v
+        | None -> "n"
+    
+    b_value |> should equal "b"
+    
+    let c_value =
+        match Ini.findNested ".b.cc" "c" ini with
+        | Some v -> v
+        | None -> "n"
+    
+    c_value |> should equal "c"
+
+[<Fact>]
 let ``if exist, findNested returns values from parent section`` () =
     let ini =
         match Ini.fromFile "input.ini" with

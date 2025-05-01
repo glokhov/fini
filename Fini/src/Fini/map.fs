@@ -12,14 +12,16 @@ module internal Map =
         let inline keyValue (prm: (string * string) * string) : string * string = key prm, value prm
 
         let rec subsections (section: string) : string list =
-            let rec loop (section: string) (acc: string list) =
-                let index = section.LastIndexOf '.'
+            let rec loop (acc: string list) (sub: string) =
+                let index = sub.LastIndexOf '.'
                 if index < 0 then
                     List.rev acc
+                elif index = 0 then
+                    List.rev ("" :: acc)
                 else
-                    let sub = section[.. index - 1]
-                    loop sub (sub :: acc)
-            loop section (List.singleton section)
+                    let sub = sub[.. index - 1]
+                    loop (sub :: acc) sub
+            loop (List.singleton section) section
 
         let rec append (lines: Line list) (section: string) (map: Map<string * string, string>) : Result<Map<string * string, string>, string> =
             match lines with

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
-        <LangVersion>preview</LangVersion>
+        <LangVersion>latest</LangVersion>
         <Authors>Gennadiy Lokhov</Authors>
         <Copyright>Copyright © Gennadiy Lokhov</Copyright>
         <Description>Simple INI parser and writer</Description>
