@@ -113,6 +113,16 @@ let ``if text is a parameter parseLine returns ok parameter`` () =
     line |> should equal (("foo", "bar") |> Parameter |> Result<Line, string>.Ok)
 
 [<Fact>]
+let ``if text is a parameter with spaces parseLine returns ok parameter`` () =
+    let line = parseLine "foo=bar b"
+    line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
+
+[<Fact>]
+let ``if text is a parameter with spaces parseLine returns ok parameter spaces`` () =
+    let line = parseLine " foo = bar b "
+    line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
+
+[<Fact>]
 let ``if cannot parse parseLine returns err`` () =
     let line = parseLine "foo"
     line |> should equal ("Cannot parse line: foo." |> Result<Line, string>.Error)
@@ -147,13 +157,3 @@ let ``if cannot parse parseLine returns err variant 4`` () =
 let ``if cannot parse parseLine returns err variant 5`` () =
     let line = parseLine "a foo=bar b"
     line |> should equal ("Cannot parse line: a foo=bar b." |> Result<Line, string>.Error)
-
-[<Fact>]
-let ``if cannot parse parseLine returns err variant 6`` () =
-    let line = parseLine "foo=bar b"
-    line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
-
-[<Fact>]
-let ``if cannot parse parseLine returns err variant 7`` () =
-    let line = parseLine " foo = bar b "
-    line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
