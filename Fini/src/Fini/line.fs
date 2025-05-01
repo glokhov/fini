@@ -10,11 +10,11 @@ type internal Line =
     | Empty
 
 module internal Line =
-    let SectionRegex: Regex = Regex(@"^(\s*\[\s*)([^\]\s]+)(\s*\]\s*)$", RegexOptions.Compiled)
+    let SectionRegex: Regex = Regex(@"^\s*\[\s*([^\]\s]+)\s*\]\s*$", RegexOptions.Compiled)
 
-    let ParameterRegex: Regex = Regex(@"^(\s*)(\S+?)(\s*=\s*)(.*?)(\s*)$", RegexOptions.Compiled)
+    let ParameterRegex: Regex = Regex(@"^\s*(\S+?)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
 
-    let CommentRegex: Regex = Regex(@"^(\s*#\s*)(.*)", RegexOptions.Compiled)
+    let CommentRegex: Regex = Regex(@"^\s*#\s*(.*)", RegexOptions.Compiled)
 
     let EmptySpaceRegex: Regex = Regex(@"^\s*$", RegexOptions.Compiled)
 
@@ -25,17 +25,17 @@ module internal Line =
 
     let (|ParseSection|_|) (text: string) : string voption =
         match text with
-        | ParseRegex SectionRegex [ _; name; _ ] -> name |> ValueSome
+        | ParseRegex SectionRegex [ name ] -> name |> ValueSome
         | _ -> ValueNone
 
     let (|ParseParameter|_|) (text: string) : (string * string) voption =
         match text with
-        | ParseRegex ParameterRegex [ _; key; _; value; _ ] -> (key, value) |> ValueSome
+        | ParseRegex ParameterRegex [ key; value ] -> (key, value) |> ValueSome
         | _ -> ValueNone
 
     let (|ParseComment|_|) (text: string) : string voption =
         match text with
-        | ParseRegex CommentRegex [ _; comment ] -> comment |> ValueSome
+        | ParseRegex CommentRegex [ comment ] -> comment |> ValueSome
         | _ -> ValueNone
 
     let (|ParseEmptySpace|_|) (text: string) : string voption =
@@ -51,9 +51,9 @@ module internal Line =
         | ParseEmptySpace _ -> Empty |> ValueSome
         | _ -> ValueNone
 
-    let parseLine (index: int, text: string) : Result<Line, string> =
+    let parseLine (text: string) : Result<Line, string> =
         match text with
         | ParseLine line -> Ok line
-        | _ -> Error $"Cannot parse line {index + 1}: {text}."
+        | _ -> Error $"Cannot parse line: {text}."
 
-    let inline fromResult (index: int, result: Result<string, string>) : Result<Line, string> = Result.bind (fun line -> parseLine (index, line)) result
+    let inline fromResult (result: Result<string, string>) : Result<Line, string> = Result.bind parseLine result

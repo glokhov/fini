@@ -150,7 +150,6 @@ module internal Map =
     let appendFromReader (reader: TextReader) (map: Map<string * string, string>) : Result<Map<string * string, string>, string> =
         reader
         |> IO.TextReader.readLines
-        |> Seq.indexed
         |> Seq.map Line.fromResult
         |> Result.collect
         |> Result.bind (fun lines -> Private.append lines "" map)

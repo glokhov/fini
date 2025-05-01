@@ -104,56 +104,56 @@ let ``if open and close brackets present ParseLine returns some section spaces``
 
 [<Fact>]
 let ``if text is a section parseLine returns ok section`` () =
-    let line = parseLine (1, "[foo]")
+    let line = parseLine "[foo]"
     line |> should equal ("foo" |> Line.Section |> Result<Line, string>.Ok)
 
 [<Fact>]
 let ``if text is a parameter parseLine returns ok parameter`` () =
-    let line = parseLine (1, "foo=bar")
+    let line = parseLine "foo=bar"
     line |> should equal (("foo", "bar") |> Parameter |> Result<Line, string>.Ok)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err`` () =
-    let line = parseLine (1, "foo")
-    line |> should equal ("Cannot parse line 2: foo." |> Result<Line, string>.Error)
+    let line = parseLine "foo"
+    line |> should equal ("Cannot parse line: foo." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err spaces`` () =
-    let line = parseLine (1, " foo ")
-    line |> should equal ("Cannot parse line 2:  foo ." |> Result<Line, string>.Error)
+    let line = parseLine " foo "
+    line |> should equal ("Cannot parse line:  foo ." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 1`` () =
-    let line = parseLine (1, "a[foo]")
-    line |> should equal ("Cannot parse line 2: a[foo]." |> Result<Line, string>.Error)
+    let line = parseLine "a[foo]"
+    line |> should equal ("Cannot parse line: a[foo]." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 2`` () =
-    let line = parseLine (1, "a[foo]b")
-    line |> should equal ("Cannot parse line 2: a[foo]b." |> Result<Line, string>.Error)
+    let line = parseLine "a[foo]b"
+    line |> should equal ("Cannot parse line: a[foo]b." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 3`` () =
-    let line = parseLine (1, "[foo]b")
-    line |> should equal ("Cannot parse line 2: [foo]b." |> Result<Line, string>.Error)
+    let line = parseLine "[foo]b"
+    line |> should equal ("Cannot parse line: [foo]b." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 4`` () =
-    let line = parseLine (1, "a foo=bar")
+    let line = parseLine "a foo=bar"
     line
-    |> should equal ("Cannot parse line 2: a foo=bar." |> Result<Line, string>.Error)
+    |> should equal ("Cannot parse line: a foo=bar." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 5`` () =
-    let line = parseLine (1, "a foo=bar b")
-    line |> should equal ("Cannot parse line 2: a foo=bar b." |> Result<Line, string>.Error)
+    let line = parseLine "a foo=bar b"
+    line |> should equal ("Cannot parse line: a foo=bar b." |> Result<Line, string>.Error)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 6`` () =
-    let line = parseLine (1, "foo=bar b")
+    let line = parseLine "foo=bar b"
     line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
 
 [<Fact>]
 let ``if cannot parse parseLine returns err variant 7`` () =
-    let line = parseLine (1, " foo = bar b ")
+    let line = parseLine " foo = bar b "
     line |> should equal (("foo", "bar b") |> Parameter |> Result<Line, string>.Ok)
