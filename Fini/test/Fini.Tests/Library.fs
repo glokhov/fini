@@ -149,7 +149,7 @@ module IniTests =
         | Some value -> Assert.Equal("global_value", value)
         | None -> Assert.Fail("expected 'global_key' to resolve to the global value")
 
-    // ---- comparer behaviour ----
+    // ---- case sensitivity ----
 
     [<Fact>]
     let ``create uses a case-insensitive (OrdinalIgnoreCase) comparer by default`` () =
@@ -158,25 +158,6 @@ module IniTests =
         match Ini.tryFind "ONE.ONE_KEY" ini with
         | Some value -> Assert.Equal("one_value", value)
         | None -> Assert.Fail("expected case-insensitive match for ONE.ONE_KEY by default")
-
-    [<Fact>]
-    let ``createWithComparer supports case-sensitive (Ordinal) lookups`` () =
-        let ini = Ini.createWithComparer StringComparer.Ordinal sampleLines
-
-        Assert.Equal<string option>(None, Ini.tryFind "ONE.ONE_KEY" ini)
-
-        match Ini.tryFind "one.one_key" ini with
-        | Some value -> Assert.Equal("one_value", value)
-        | None -> Assert.Fail("expected exact-case match for one.one_key")
-
-    [<Fact>]
-    let ``createKey builds a key carrying the ini comparer`` () =
-        let ini = Ini.createWithComparer StringComparer.OrdinalIgnoreCase sampleLines
-        let key = Ini.createKey ".ONE.ONE_KEY" ini
-
-        Assert.Equal(StringComparer.OrdinalIgnoreCase, key.Comparer)
-        // The key can be used directly against the underlying table.
-        Assert.True(ini.Table.ContainsKey key)
 
     // ---- empty input ----
 
@@ -190,18 +171,10 @@ module IniTests =
     // ---- empty / append ----
 
     [<Fact>]
-    let ``empty yields an empty table using a case-insensitive comparer by default`` () =
+    let ``empty yields an empty table`` () =
         let ini = Ini.empty
 
         Assert.True(ini.Table.IsEmpty)
-        Assert.Equal(StringComparer.OrdinalIgnoreCase, ini.Comparer)
-
-    [<Fact>]
-    let ``emptyWithComparer yields an empty table carrying the given comparer`` () =
-        let ini = Ini.emptyWithComparer StringComparer.Ordinal
-
-        Assert.True(ini.Table.IsEmpty)
-        Assert.Equal(StringComparer.Ordinal, ini.Comparer)
 
     [<Fact>]
     let ``append adds parsed lines to an existing ini`` () =
@@ -226,10 +199,3 @@ module IniTests =
         match Ini.tryFind "s.other" ini with
         | Some value -> Assert.Equal("new", value)
         | None -> Assert.Fail("expected append to add s.other")
-
-    [<Fact>]
-    let ``append preserves the comparer of the target ini`` () =
-        let ini = Ini.emptyWithComparer StringComparer.Ordinal |> Ini.append sampleLines
-
-        Assert.Equal(StringComparer.Ordinal, ini.Comparer)
-        Assert.Equal<string option>(None, Ini.tryFind "ONE.ONE_KEY" ini)

@@ -40,6 +40,15 @@ let ini =
           "two_key=two_value" ]
 ```
 
+You can also start from an empty configuration with `Ini.empty` and add lines with
+`Ini.append`. Every function returns a new `Ini`; the original is never mutated, so
+`append` yields a fresh configuration that combines the existing entries with the new
+ones (later values override earlier ones for the same key):
+
+```fsharp
+let ini = Ini.empty |> Ini.append [ "[one]"; "one_key=one_value" ]
+```
+
 Keys are addressed with dot notation. A section name and a parameter name are joined
 with a dot, and nested sections simply chain more dots:
 
@@ -116,19 +125,87 @@ found in any section along the way and `None` otherwise.
 
 ### Case sensitivity
 
-By default keys are matched case-insensitively, so `ONE.ONE_KEY` finds the same value
-as `one.one_key`.
+Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
+`ONE.ONE_KEY` finds the same value as `one.one_key`.
 
 ```fsharp
 let value = ini |> Ini.tryFind "ONE.ONE_KEY"
 // value = Some "one_value"
 ```
 
-If you need case-sensitive lookups, build the configuration with a specific comparer:
+### Using Fini from C#
 
-```fsharp
-let ini = Ini.createWithComparer StringComparer.Ordinal lines
+Fini ships a C# friendly facade on the `Ini` type. The same immutable configuration is
+exposed through static factory methods and instance methods, and lookups follow the
+`bool`/`out` `Try...` pattern that C# developers expect.
 
-ini |> Ini.tryFind "ONE.ONE_KEY"  // None
-ini |> Ini.tryFind "one.one_key"  // Some "one_value"
+Add a `using` directive for the namespace:
+
+```csharp
+using Fini;
+```
+
+#### Creating a configuration
+
+Call `Ini.Create` with the lines of your configuration. It accepts any `IEnumerable<string>`:
+
+```csharp
+var ini = Ini.Create(
+[
+    "global_key=global_value",
+    "[one]",
+    "one_key=one_value",
+    "[one.two]",
+    "two_key=two_value"
+]);
+```
+
+Use `Ini.Empty` to start from an empty configuration, and `Append` to add more lines.
+Every operation returns a new `Ini`; the original is never mutated:
+
+```csharp
+var ini = Ini.Empty.Append(["[one]", "one_key=one_value"]);
+```
+
+#### Looking up a value
+
+`TryFind` returns `true` and sets the `out` parameter when the key exists, and returns
+`false` with a `null` value otherwise:
+
+```csharp
+if (ini.TryFind("one.one_key", out var value))
+{
+    // value == "one_value"
+}
+
+if (!ini.TryFind("one.missing", out var missing))
+{
+    // missing == null
+}
+```
+
+The leading dot that roots a key is optional, so `global_key` and `.global_key` resolve
+to the same global value.
+
+#### Falling back to a parent section
+
+`TryFindNested` looks up a parameter and, if it is not present in the given section, falls
+back to each parent section in turn, ending at the global section:
+
+```csharp
+var ini = Ini.Create(["[a]", "c=parent", "[a.b]", "other=value"]);
+
+if (ini.TryFindNested("a.b.c", out var value))
+{
+    // value == "parent"  (inherited from the parent section [a])
+}
+```
+
+#### Case sensitivity
+
+Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
+`ONE.ONE_KEY` finds the same value as `one.one_key`:
+
+```csharp
+ini.TryFind("ONE.ONE_KEY", out var value);  // true, value == "one_value"
 ```
