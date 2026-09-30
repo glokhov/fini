@@ -165,7 +165,7 @@ module IniTests =
     let ``create with no lines yields an empty table`` () =
         let ini = Ini.create []
 
-        Assert.True(ini.Table.IsEmpty)
+        Assert.True(ini.Map.IsEmpty)
         Assert.Equal<string option>(None, Ini.tryFind ".anything" ini)
 
     // ---- empty / append ----
@@ -174,7 +174,7 @@ module IniTests =
     let ``empty yields an empty table`` () =
         let ini = Ini.empty
 
-        Assert.True(ini.Table.IsEmpty)
+        Assert.True(ini.Map.IsEmpty)
 
     [<Fact>]
     let ``append adds parsed lines to an existing ini`` () =

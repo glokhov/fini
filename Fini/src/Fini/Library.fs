@@ -6,10 +6,16 @@ open System.Text.RegularExpressions
 
 [<AutoOpen>]
 module private Parser =
+    [<Struct>]
+    type Section = { Name: string }
 
+    [<Struct>]
+    type Parameter = { Name: string; Value: string }
+
+    [<Struct>]
     type Line =
-        | Section of string
-        | Parameter of string * string
+        | Section of Section: Section
+        | Parameter of Parameter: Parameter
 
     let sectionRegex = Regex(@"^\s*\[\s*([^\]\s]+)\s*\]\s*$", RegexOptions.Compiled)
 
@@ -22,12 +28,12 @@ module private Parser =
 
     let (|ParseSection|_|) text =
         match text with
-        | ParseRegex sectionRegex [ name ] -> name |> ValueSome
+        | ParseRegex sectionRegex [ name ] -> { Name = name } |> ValueSome
         | _ -> ValueNone
 
     let (|ParseParameter|_|) text =
         match text with
-        | ParseRegex parameterRegex [ key; value ] -> (key, value) |> ValueSome
+        | ParseRegex parameterRegex [ key; value ] -> { Name = key; Value = value } |> ValueSome
         | _ -> ValueNone
 
     let (|ParseLine|_|) text =
@@ -58,7 +64,7 @@ type Key =
 
     override this.GetHashCode() = StringComparer.OrdinalIgnoreCase.GetHashCode(this.Path)
 
-type Ini = { Table: Map<Key, string> }
+type Ini = { Map: Map<Key, string> }
 
 [<RequireQualifiedAccess>]
 module Ini =
@@ -69,9 +75,11 @@ module Ini =
 
     let inline private trim (s: string) = s.Trim()
 
+    let inline private lastIndexOfDot s = lastIndexOf '.' s
+
     let inline private isNotEmpty s = not (String.IsNullOrWhiteSpace s)
 
-    let inline private ensureDot (s: string) = if s.StartsWith '.' then s else "." + s
+    let inline private ensureLeadingDot (s: string) = if s.StartsWith '.' then s else "." + s
 
     let private trimComment line =
         match firstIndexOf '#' line with
@@ -79,52 +87,58 @@ module Ini =
         | index -> line[.. index - 1]
 
     let append lines ini =
-        let rec collect table section lines =
-            match lines with
-            | [] -> table
-            | head :: tail ->
-                match head with
-                | Section key -> collect table { section with Path = "." + key } tail
-                | Parameter(key, value) -> collect (Map.add { section with Path = section.Path + "." + key } value table) section tail
+        let append map lines =
+            let rec loop map lines section =
+                match lines with
+                | [] -> map
+                | head :: tail ->
+                    match head with
+                    | Section { Name = name } -> loop map tail { section with Path = "." + name }
+                    | Parameter { Name = key; Value = value } ->
+                        loop (Map.add { section with Path = section.Path + "." + key } value map) tail section
 
-        let table =
+            loop map (Seq.toList lines) { Path = "" }
+
+        let map =
             lines
             |> Seq.map trimComment
             |> Seq.map trim
             |> Seq.filter isNotEmpty
             |> Seq.map parseLine
-            |> Seq.toList
-            |> collect ini.Table { Path = "" }
+            |> append ini.Map
 
-        { ini with Table = table }
+        { ini with Map = map }
 
-    let empty = { Table = Map.empty }
+    let empty = { Map = Map.empty }
 
     let create lines = empty |> append lines
 
-    let tryFind key ini = Map.tryFind { Path = ensureDot key } ini.Table
+    let tryFind key ini = Map.tryFind { Path = ensureLeadingDot key } ini.Map
 
     let tryFindNested key ini =
-        let key = ensureDot key
-        let lastDot = lastIndexOf '.' key
-        let param = key[lastDot + 1 ..]
+        let key = ensureLeadingDot key
+        let separator = lastIndexOfDot key
+        let section = key[.. separator - 1]
+        let param = key[separator..]
 
-        let rec loop (section: string) =
-            match Map.tryFind { Path = section + "." + param } ini.Table with
+        let rec loop section =
+            match Map.tryFind { Path = section + param } ini.Map with
             | Some value -> Some value
-            | None -> if section = "" then None else loop section[.. (lastIndexOf '.' section) - 1]
+            | None ->
+                match section with
+                | "" -> None
+                | _ -> loop section[.. (lastIndexOfDot section) - 1]
 
-        loop key[.. lastDot - 1]
+        loop section
 
 type Ini with
-
-    static member Empty : Ini = Ini.empty
+    static member Empty: Ini = Ini.empty
 
     static member Create(lines) : Ini = Ini.create lines
 
     member this.Append(lines) : Ini = Ini.append lines this
 
-    member this.TryFind(key: string, [<Out>] value: byref<string>) : bool =
+    member this.TryFind(key, [<Out>] value: byref<string>) : bool =
         match Ini.tryFind key this with
         | Some found ->
             value <- found
@@ -133,7 +147,7 @@ type Ini with
             value <- null
             false
 
-    member this.TryFindNested(key: string, [<Out>] value: byref<string>) : bool =
+    member this.TryFindNested(key, [<Out>] value: byref<string>) : bool =
         match Ini.tryFindNested key this with
         | Some found ->
             value <- found
