@@ -49,12 +49,16 @@ ones (later values override earlier ones for the same key):
 let ini = Ini.empty |> Ini.append [ "[one]"; "one_key=one_value" ]
 ```
 
-Keys are addressed with dot notation. A section name and a parameter name are joined
-with a dot, and nested sections simply chain more dots:
+Keys are addressed as `section:parameter`. Dots separate nested section names, and a
+colon separates the section path from the parameter name:
 
-- `one.one_key` — the `one_key` parameter in section `[one]`
-- `one.two.two_key` — the `two_key` parameter in section `[one.two]`
-- `.global_key` — a parameter that lives outside any section (note the leading dot)
+- `one:one_key` — the `one_key` parameter in section `[one]`
+- `one.two:two_key` — the `two_key` parameter in section `[one.two]`
+- `:global_key` — a parameter that lives outside any section (note the leading colon)
+
+Because the colon marks the boundary, a parameter name may itself contain dots without
+becoming ambiguous: `one.two:a.b.c` is the `a.b.c` parameter in section `[one.two]`, and
+it is a different key from `one:two.a.b.c`.
 
 ### Looking up a value
 
@@ -63,57 +67,60 @@ exists and `None` otherwise:
 
 ```fsharp
 let value =
-    match ini |> Ini.tryFind "one.one_key" with
+    match ini |> Ini.tryFind "one:one_key" with
     | Some value -> value
     | None -> "none"
 // value = "one_value"
 
 let value =
-    match ini |> Ini.tryFind "one.missing" with
+    match ini |> Ini.tryFind "one:missing" with
     | Some value -> value
     | None -> "none"
 // value = "none"
 ```
 
-Lookups are exact, but the leading dot that roots a key is optional: `one.one_key` and
-`.one.one_key` resolve to the same value. A bare parameter name such as `global_key` is
-therefore treated as a global value.
+Lookups are exact. A key with no colon is read as a bare parameter name in the global
+section, so `global_key` and `:global_key` resolve to the same value.
 
-Global values live at the root and are addressed with a leading dot, which you may omit:
+Global values live at the root and are addressed with a leading colon, which you may omit:
 
 ```fsharp
-let value = ini |> Ini.tryFind ".global_key"
+let value = ini |> Ini.tryFind ":global_key"
 // value = Some "global_value"
 
 let value = ini |> Ini.tryFind "global_key"
-// value = Some "global_value"  (the leading dot is added for you)
+// value = Some "global_value"  (the leading colon is added for you)
 ```
 
 ### Falling back to a parent section
 
 Call `tryFindNested` to look up a parameter and, if it is not present in the given
-section, fall back to each parent section in turn. The parameter name (the last segment
-of the key) stays fixed while the search walks up the section hierarchy, ending at the
+section, fall back to each parent section in turn. The parameter name (everything after
+the colon) stays fixed while the search walks up the section hierarchy, ending at the
 global section. This is useful when an inner section should inherit a setting from an
 outer one.
 
-For the key `a.b.c` the parameter is `c` and the following keys are tried in order until
+For the key `a.b:c` the parameter is `c` and the following keys are tried in order until
 one is found:
 
-- `a.b.c` — `c` in section `[a.b]`
-- `a.c` — `c` in the parent section `[a]`
-- `.c` — `c` in the global section
+- `a.b:c` — `c` in section `[a.b]`
+- `a:c` — `c` in the parent section `[a]`
+- `:c` — `c` in the global section
 
 ```fsharp
 let ini = Ini.create [ "[a]"; "c=parent"; "[a.b]"; "other=value" ]
 
-let value = ini |> Ini.tryFindNested "a.b.c"
+let value = ini |> Ini.tryFindNested "a.b:c"
 // value = Some "parent"  (inherited from the parent section [a])
 ```
 
 The value from the nearest section wins, so if `c` also existed in `[a.b]` that value
 would be returned instead. `tryFindNested` returns `Some value` when the parameter is
 found in any section along the way and `None` otherwise.
+
+Because the parameter name is taken as a whole, dots inside it are never mistaken for
+section boundaries. For `one.two:a.b.c` the walk is `one.two:a.b.c` → `one:a.b.c` →
+`:a.b.c`.
 
 ### Parsing rules
 
@@ -122,14 +129,16 @@ found in any section along the way and `None` otherwise.
   (`key = hello world` yields `hello world`).
 - Everything after a `#` is treated as a comment and removed. A line that is entirely
   a comment is dropped.
+- `:` is reserved as the section/parameter separator, so it may not appear in a section
+  name or a parameter name. It is allowed inside a *value* (`url=http://example.com`).
 
 ### Case sensitivity
 
 Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
-`ONE.ONE_KEY` finds the same value as `one.one_key`.
+`ONE:ONE_KEY` finds the same value as `one:one_key`.
 
 ```fsharp
-let value = ini |> Ini.tryFind "ONE.ONE_KEY"
+let value = ini |> Ini.tryFind "ONE:ONE_KEY"
 // value = Some "one_value"
 ```
 
@@ -173,19 +182,20 @@ var ini = Ini.Empty.Append(["[one]", "one_key=one_value"]);
 `false` with a `null` value otherwise:
 
 ```csharp
-if (ini.TryFind("one.one_key", out var value))
+if (ini.TryFind("one:one_key", out var value))
 {
     // value == "one_value"
 }
 
-if (!ini.TryFind("one.missing", out var missing))
+if (!ini.TryFind("one:missing", out var missing))
 {
     // missing == null
 }
 ```
 
-The leading dot that roots a key is optional, so `global_key` and `.global_key` resolve
-to the same global value.
+The leading colon is optional for global keys, so `global_key` and `:global_key` resolve
+to the same global value. A parameter name may contain dots — `one.two:a.b.c` is the
+`a.b.c` parameter in section `[one.two]`.
 
 #### Falling back to a parent section
 
@@ -195,7 +205,7 @@ back to each parent section in turn, ending at the global section:
 ```csharp
 var ini = Ini.Create(["[a]", "c=parent", "[a.b]", "other=value"]);
 
-if (ini.TryFindNested("a.b.c", out var value))
+if (ini.TryFindNested("a.b:c", out var value))
 {
     // value == "parent"  (inherited from the parent section [a])
 }
@@ -204,8 +214,8 @@ if (ini.TryFindNested("a.b.c", out var value))
 #### Case sensitivity
 
 Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
-`ONE.ONE_KEY` finds the same value as `one.one_key`:
+`ONE:ONE_KEY` finds the same value as `one:one_key`:
 
 ```csharp
-ini.TryFind("ONE.ONE_KEY", out var value);  // true, value == "one_value"
+ini.TryFind("ONE:ONE_KEY", out var value);  // true, value == "one_value"
 ```

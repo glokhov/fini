@@ -17,9 +17,9 @@ module private Parser =
         | Section of Section: Section
         | Parameter of Parameter: Parameter
 
-    let sectionRegex = Regex(@"^\s*\[\s*([^\]\s]+)\s*\]\s*$", RegexOptions.Compiled)
+    let sectionRegex = Regex(@"^\s*\[\s*([^\]\s:]+)\s*\]\s*$", RegexOptions.Compiled)
 
-    let parameterRegex = Regex(@"^\s*(\S+?)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
+    let parameterRegex = Regex(@"^\s*([^\s:=]+?)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
 
     let (|ParseRegex|_|) (regex: Regex) input =
         match regex.Match(input) with
@@ -77,9 +77,11 @@ module Ini =
 
     let inline private lastIndexOfDot s = lastIndexOf '.' s
 
+    let inline private firstIndexOfColon s = firstIndexOf ':' s
+
     let inline private isNotEmpty s = not (String.IsNullOrWhiteSpace s)
 
-    let inline private ensureLeadingDot (s: string) = if s.StartsWith '.' then s else "." + s
+    let inline private ensureSeparator (s: string) = if s.Contains ':' then s else ":" + s
 
     let private trimComment line =
         match firstIndexOf '#' line with
@@ -93,9 +95,9 @@ module Ini =
                 | [] -> map
                 | head :: tail ->
                     match head with
-                    | Section { Name = name } -> loop map tail { section with Path = "." + name }
+                    | Section { Name = name } -> loop map tail { section with Path = name }
                     | Parameter { Name = key; Value = value } ->
-                        loop (Map.add { section with Path = section.Path + "." + key } value map) tail section
+                        loop (Map.add { section with Path = section.Path + ":" + key } value map) tail section
 
             loop map (Seq.toList lines) { Path = "" }
 
@@ -113,11 +115,11 @@ module Ini =
 
     let create lines = empty |> append lines
 
-    let tryFind key ini = Map.tryFind { Path = ensureLeadingDot key } ini.Map
+    let tryFind key ini = Map.tryFind { Path = ensureSeparator key } ini.Map
 
     let tryFindNested key ini =
-        let key = ensureLeadingDot key
-        let separator = lastIndexOfDot key
+        let key = ensureSeparator key
+        let separator = firstIndexOfColon key
         let section = key[.. separator - 1]
         let param = key[separator..]
 
@@ -127,7 +129,10 @@ module Ini =
             | None ->
                 match section with
                 | "" -> None
-                | _ -> loop section[.. (lastIndexOfDot section) - 1]
+                | _ ->
+                    match lastIndexOfDot section with
+                    | -1 -> loop ""
+                    | index -> loop section[.. index - 1]
 
         loop section
 
