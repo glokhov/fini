@@ -5,6 +5,40 @@ open System.Runtime.InteropServices
 open System.Text.RegularExpressions
 
 [<AutoOpen>]
+module private String =
+    let inline isNotEmpty s = not (String.IsNullOrEmpty s)
+
+    let inline trim (s: string) =
+        let s = nullArgCheck "s" s
+        s.Trim()
+
+    let inline indexOf (c: char) (s: string) =
+        let s = nullArgCheck "s" s
+        (nullArgCheck "s" s).IndexOf c
+
+    let inline lastIndexOf (c: char) (s: string) =
+        let s = nullArgCheck "s" s
+        s.LastIndexOf c
+
+    let inline firstIndexOfColon s =
+        let s = nullArgCheck "s" s
+        indexOf ':' s
+
+    let inline lastIndexOfDot s =
+        let s = nullArgCheck "s" s
+        lastIndexOf '.' s
+
+    let inline takeBefore c s =
+        match indexOf c s with
+        | -1 -> s
+        | index -> s[.. index - 1]
+
+    let inline ensureSeparator (s: string) =
+        match nullArgCheck "s" s with
+        | s when s.Contains ':' -> s
+        | s -> ":" + s
+
+[<AutoOpen>]
 module private Parser =
     [<Struct>]
     type Section = { Name: string }
@@ -17,26 +51,26 @@ module private Parser =
         | Section of Section: Section
         | Parameter of Parameter: Parameter
 
-    let sectionRegex = Regex(@"^\s*\[\s*([^\]\s:]+)\s*\]\s*$", RegexOptions.Compiled)
+    let private sectionRegex = Regex(@"^\s*\[\s*([^\]\s:]+)\s*\]\s*$", RegexOptions.Compiled)
 
-    let parameterRegex = Regex(@"^\s*([^\s:=]+?)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
+    let private parameterRegex = Regex(@"^\s*([^\s:=]+?)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
 
-    let (|ParseRegex|_|) (regex: Regex) input =
+    let private (|ParseRegex|_|) (regex: Regex) input =
         match regex.Match(input) with
         | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> ValueSome
         | _ -> ValueNone
 
-    let (|ParseSection|_|) text =
+    let private (|ParseSection|_|) text =
         match text with
         | ParseRegex sectionRegex [ name ] -> { Name = name } |> ValueSome
         | _ -> ValueNone
 
-    let (|ParseParameter|_|) text =
+    let private (|ParseParameter|_|) text =
         match text with
         | ParseRegex parameterRegex [ key; value ] -> { Name = key; Value = value } |> ValueSome
         | _ -> ValueNone
 
-    let (|ParseLine|_|) text =
+    let private (|ParseLine|_|) text =
         match text with
         | ParseSection section -> section |> Section |> ValueSome
         | ParseParameter parameter -> parameter |> Parameter |> ValueSome
@@ -44,51 +78,55 @@ module private Parser =
 
     let parseLine text =
         match text with
-        | ParseLine line -> line
-        | _ -> failwith $"Cannot parse line: %s{text}."
+        | ParseLine line -> Ok line
+        | _ -> Error $"Cannot parse line: %s{text}."
+
+[<RequireQualifiedAccess>]
+module private Result =
+    let traverse (lines: Result<Line, string> seq) =
+        let folder state next =
+            match state, next with
+            | Ok tail, Ok head -> Ok(head :: tail)
+            | Error err, _ -> Error err
+            | _, Error err -> Error err
+
+        Seq.fold folder (Ok []) lines |> Result.map List.rev
 
 [<CustomComparison; CustomEquality>]
 type Key =
-    { Path: string }
+    private
+        { Path: string }
 
     interface IComparable with
-        member this.CompareTo(other) =
-            match other with
+        member this.CompareTo(obj) =
+            match obj with
             | :? Key as other -> StringComparer.OrdinalIgnoreCase.Compare(this.Path, other.Path)
-            | _ -> StringComparer.OrdinalIgnoreCase.Compare(this.Path, null)
+            | _ -> invalidArg "obj" "Object is not a Key."
 
-    override this.Equals(other) =
-        match other with
+    override this.Equals(obj) =
+        match obj with
         | :? Key as other -> StringComparer.OrdinalIgnoreCase.Equals(this.Path, other.Path)
-        | _ -> false
+        | _ -> invalidArg "obj" "Object is not a Key."
 
     override this.GetHashCode() = StringComparer.OrdinalIgnoreCase.GetHashCode(this.Path)
 
-type Ini = { Map: Map<Key, string> }
+type Ini = private { Map: Map<Key, string> }
 
 [<RequireQualifiedAccess>]
 module Ini =
+    let empty = { Map = Map.empty }
 
-    let inline private firstIndexOf (c: char) (s: string) = s.IndexOf c
+    let isEmpty ini = Map.isEmpty ini.Map
 
-    let inline private lastIndexOf (c: char) (s: string) = s.LastIndexOf c
+    let containsKey ini key = Map.containsKey { Path = ensureSeparator key } ini.Map
 
-    let inline private trim (s: string) = s.Trim()
+    let count ini = Map.count ini.Map
 
-    let inline private lastIndexOfDot s = lastIndexOf '.' s
+    let keys ini = Map.keys ini.Map |> Seq.map _.Path
 
-    let inline private firstIndexOfColon s = firstIndexOf ':' s
+    let values ini = Map.values ini.Map :> string seq
 
-    let inline private isNotEmpty s = not (String.IsNullOrWhiteSpace s)
-
-    let inline private ensureSeparator (s: string) = if s.Contains ':' then s else ":" + s
-
-    let private trimComment line =
-        match firstIndexOf '#' line with
-        | -1 -> line
-        | index -> line[.. index - 1]
-
-    let append lines ini =
+    let tryAppend lines ini =
         let append map lines =
             let rec loop map lines section =
                 match lines with
@@ -101,19 +139,20 @@ module Ini =
 
             loop map (Seq.toList lines) { Path = "" }
 
-        let map =
-            lines
-            |> Seq.map trimComment
+        let lines =
+            nullArgCheck "lines" lines
+            |> Seq.map (takeBefore '#')
+            |> Seq.map (takeBefore ';')
             |> Seq.map trim
             |> Seq.filter isNotEmpty
             |> Seq.map parseLine
-            |> append ini.Map
+            |> Result.traverse
 
-        { ini with Map = map }
+        match lines with
+        | Ok map -> Ok { Map = append ini.Map map }
+        | Error err -> Error err
 
-    let empty = { Map = Map.empty }
-
-    let create lines = empty |> append lines
+    let tryCreate lines = tryAppend lines empty
 
     let tryFind key ini = Map.tryFind { Path = ensureSeparator key } ini.Map
 
@@ -139,24 +178,34 @@ module Ini =
 type Ini with
     static member Empty: Ini = Ini.empty
 
-    static member Create(lines) : Ini = Ini.create lines
+    member this.IsEmpty: bool = Ini.isEmpty this
 
-    member this.Append(lines) : Ini = Ini.append lines this
+    member this.ContainsKey(key: string) : bool = Ini.containsKey this key
 
-    member this.TryFind(key, [<Out>] value: byref<string>) : bool =
+    member this.Count: int = Ini.count this
+
+    member this.Keys: string seq = Ini.keys this
+
+    member this.Values: string seq = Ini.values this
+
+    static member TryCreate(lines: string seq) : Result<Ini, string> = Ini.tryCreate lines
+
+    member this.TryAppend(lines: string seq) : Result<Ini, string> = Ini.tryAppend lines this
+
+    member this.TryFind(key: string, [<Out>] value: byref<string>) : bool =
         match Ini.tryFind key this with
         | Some found ->
             value <- found
             true
         | None ->
-            value <- null
+            value <- Unchecked.defaultof<_>
             false
 
-    member this.TryFindNested(key, [<Out>] value: byref<string>) : bool =
+    member this.TryFindNested(key: string, [<Out>] value: byref<string>) : bool =
         match Ini.tryFindNested key this with
         | Some found ->
             value <- found
             true
         | None ->
-            value <- null
+            value <- Unchecked.defaultof<_>
             false

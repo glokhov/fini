@@ -1,6 +1,5 @@
 namespace Fini
 
-open System
 open Xunit
 
 module IniTests =
@@ -9,7 +8,13 @@ module IniTests =
     let private sampleLines =
         [ "global_key=global_value"; "[one]"; "one_key=one_value"; "[one.two]"; "two_key=two_value" ]
 
-    let private sample () = Ini.create sampleLines
+    // tryCreate/tryAppend return Result<Ini, string>; tests that expect success unwrap it here.
+    let private unwrap result =
+        match result with
+        | Ok value -> value
+        | Error err -> failwith err
+
+    let private sample () = Ini.tryCreate sampleLines |> unwrap
 
     // ---- create / tryFind ----
 
@@ -54,7 +59,7 @@ module IniTests =
 
     [<Fact>]
     let ``create trims inline comments starting with hash`` () =
-        let ini = Ini.create [ "[s]"; "key=value # trailing comment" ]
+        let ini = Ini.tryCreate [ "[s]"; "key=value # trailing comment" ] |> unwrap
 
         match Ini.tryFind "s:key" ini with
         | Some value -> Assert.Equal("value", value)
@@ -62,7 +67,7 @@ module IniTests =
 
     [<Fact>]
     let ``create trims surrounding whitespace around keys and values`` () =
-        let ini = Ini.create [ "[s]"; "   key   =   value   " ]
+        let ini = Ini.tryCreate [ "[s]"; "   key   =   value   " ] |> unwrap
 
         match Ini.tryFind "s:key" ini with
         | Some value -> Assert.Equal("value", value)
@@ -70,7 +75,7 @@ module IniTests =
 
     [<Fact>]
     let ``create ignores blank and whitespace-only lines`` () =
-        let ini = Ini.create [ ""; "   "; "[s]"; ""; "key=value"; "   " ]
+        let ini = Ini.tryCreate [ ""; "   "; "[s]"; ""; "key=value"; "   " ] |> unwrap
 
         match Ini.tryFind "s:key" ini with
         | Some value -> Assert.Equal("value", value)
@@ -78,7 +83,7 @@ module IniTests =
 
     [<Fact>]
     let ``create keeps whitespace inside a value`` () =
-        let ini = Ini.create [ "[s]"; "key = hello world" ]
+        let ini = Ini.tryCreate [ "[s]"; "key = hello world" ] |> unwrap
 
         match Ini.tryFind "s:key" ini with
         | Some value -> Assert.Equal("hello world", value)
@@ -86,7 +91,7 @@ module IniTests =
 
     [<Fact>]
     let ``create with a fully commented line drops the parameter`` () =
-        let ini = Ini.create [ "[s]"; "# key=value" ]
+        let ini = Ini.tryCreate [ "[s]"; "# key=value" ] |> unwrap
 
         Assert.Equal<string option>(None, Ini.tryFind "s:key" ini)
 
@@ -95,7 +100,7 @@ module IniTests =
     [<Fact>]
     let ``tryFindNested finds the parameter in the nearest parent section`` () =
         // "c" is not in section [a.b], but it is in the parent section [a].
-        let ini = Ini.create [ "[a]"; "c=parent"; "[a.b]"; "other=x" ]
+        let ini = Ini.tryCreate [ "[a]"; "c=parent"; "[a.b]"; "other=x" ] |> unwrap
 
         match Ini.tryFindNested "a.b:c" ini with
         | Some value -> Assert.Equal("parent", value)
@@ -104,7 +109,7 @@ module IniTests =
     [<Fact>]
     let ``tryFindNested checks the given section first`` () =
         // "c" exists in the given section [a.b], so that value wins over any parent.
-        let ini = Ini.create [ "[a]"; "c=parent"; "[a.b]"; "c=child" ]
+        let ini = Ini.tryCreate [ "[a]"; "c=parent"; "[a.b]"; "c=child" ] |> unwrap
 
         match Ini.tryFindNested "a.b:c" ini with
         | Some value -> Assert.Equal("child", value)
@@ -113,7 +118,7 @@ module IniTests =
     [<Fact>]
     let ``tryFindNested falls back to the global section`` () =
         // "c" only exists globally, stored under ".c".
-        let ini = Ini.create [ "c=global"; "[a]"; "x=1"; "[a.b]"; "y=2" ]
+        let ini = Ini.tryCreate [ "c=global"; "[a]"; "x=1"; "[a.b]"; "y=2" ] |> unwrap
 
         match Ini.tryFindNested "a.b:c" ini with
         | Some value -> Assert.Equal("global", value)
@@ -163,9 +168,9 @@ module IniTests =
 
     [<Fact>]
     let ``create with no lines yields an empty table`` () =
-        let ini = Ini.create []
+        let ini = Ini.tryCreate [] |> unwrap
 
-        Assert.True(ini.Map.IsEmpty)
+        Assert.True(ini.IsEmpty)
         Assert.Equal<string option>(None, Ini.tryFind ":anything" ini)
 
     // ---- empty / append ----
@@ -174,11 +179,11 @@ module IniTests =
     let ``empty yields an empty table`` () =
         let ini = Ini.empty
 
-        Assert.True(ini.Map.IsEmpty)
+        Assert.True(ini.IsEmpty)
 
     [<Fact>]
     let ``append adds parsed lines to an existing ini`` () =
-        let ini = Ini.empty |> Ini.append sampleLines
+        let ini = Ini.empty |> Ini.tryAppend sampleLines |> unwrap
 
         match Ini.tryFind "one:one_key" ini with
         | Some value -> Assert.Equal("one_value", value)
@@ -187,8 +192,9 @@ module IniTests =
     [<Fact>]
     let ``append merges into and overrides an existing ini`` () =
         let ini =
-            Ini.create [ "[s]"; "key=first" ]
-            |> Ini.append [ "[s]"; "key=second"; "other=new" ]
+            Ini.tryCreate [ "[s]"; "key=first" ]
+            |> Result.bind (Ini.tryAppend [ "[s]"; "key=second"; "other=new" ])
+            |> unwrap
 
         // The later value wins.
         match Ini.tryFind "s:key" ini with
@@ -204,7 +210,7 @@ module IniTests =
 
     [<Fact>]
     let ``tryFind resolves a parameter name containing dots`` () =
-        let ini = Ini.create [ "[one]"; "a.b.c=from-one" ]
+        let ini = Ini.tryCreate [ "[one]"; "a.b.c=from-one" ] |> unwrap
 
         match Ini.tryFind "one:a.b.c" ini with
         | Some value -> Assert.Equal("from-one", value)
@@ -214,7 +220,7 @@ module IniTests =
     let ``tryFindNested walks sections when the parameter name contains dots`` () =
         // The parameter name "a.b.c" must stay intact while the section walk goes
         // [one.two] -> [one], rather than being split on its own dots.
-        let ini = Ini.create [ "[one]"; "a.b.c=from-one"; "[one.two]"; "x=1" ]
+        let ini = Ini.tryCreate [ "[one]"; "a.b.c=from-one"; "[one.two]"; "x=1" ] |> unwrap
 
         match Ini.tryFindNested "one.two:a.b.c" ini with
         | Some value -> Assert.Equal("from-one", value)
@@ -222,7 +228,7 @@ module IniTests =
 
     [<Fact>]
     let ``tryFindNested falls back to a global parameter whose name contains dots`` () =
-        let ini = Ini.create [ "a.b.c=global"; "[x.y]"; "k=1" ]
+        let ini = Ini.tryCreate [ "a.b.c=global"; "[x.y]"; "k=1" ] |> unwrap
 
         match Ini.tryFindNested "x.y:a.b.c" ini with
         | Some value -> Assert.Equal("global", value)
@@ -231,7 +237,7 @@ module IniTests =
     [<Fact>]
     let ``a dotted parameter does not collide with a nested section`` () =
         // "two.k" in [one] and "k" in [one.two] are distinct keys.
-        let ini = Ini.create [ "[one]"; "two.k=A"; "[one.two]"; "k=B" ]
+        let ini = Ini.tryCreate [ "[one]"; "two.k=A"; "[one.two]"; "k=B" ] |> unwrap
 
         Assert.Equal<string option>(Some "A", Ini.tryFind "one:two.k" ini)
         Assert.Equal<string option>(Some "B", Ini.tryFind "one.two:k" ini)
@@ -240,15 +246,19 @@ module IniTests =
 
     [<Fact>]
     let ``a colon in a section name is rejected`` () =
-        Assert.ThrowsAny<exn>(fun () -> Ini.create [ "[a:b]" ] |> ignore) |> ignore
+        match Ini.tryCreate [ "[a:b]" ] with
+        | Error _ -> ()
+        | Ok _ -> Assert.Fail("expected tryCreate to reject a colon in a section name")
 
     [<Fact>]
     let ``a colon in a parameter name is rejected`` () =
-        Assert.ThrowsAny<exn>(fun () -> Ini.create [ "a:b=v" ] |> ignore) |> ignore
+        match Ini.tryCreate [ "a:b=v" ] with
+        | Error _ -> ()
+        | Ok _ -> Assert.Fail("expected tryCreate to reject a colon in a parameter name")
 
     [<Fact>]
     let ``a value may contain a colon`` () =
-        let ini = Ini.create [ "u=http://example.com" ]
+        let ini = Ini.tryCreate [ "u=http://example.com" ] |> unwrap
 
         match Ini.tryFind "u" ini with
         | Some value -> Assert.Equal("http://example.com", value)

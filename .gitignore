@@ -3,6 +3,8 @@
 .idea
 .vs
 
+TestResults
+
 bin
 obj
 

@@ -1,4 +1,4 @@
-using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Fini.CSharp.Tests;
@@ -15,7 +15,21 @@ public class IniTests
         "two_key=two_value"
     ];
 
-    private static Ini Sample() => Ini.Create(SampleLines);
+    private static Ini Sample() => CreateOrThrow(SampleLines);
+
+    private static Ini CreateOrThrow(IEnumerable<string> lines)
+    {
+        var result = Ini.TryCreate(lines);
+        Assert.True(result.IsOk);
+        return result.ResultValue;
+    }
+
+    private static Ini AppendOrThrow(Ini ini, IEnumerable<string> lines)
+    {
+        var result = ini.TryAppend(lines);
+        Assert.True(result.IsOk);
+        return result.ResultValue;
+    }
 
     // ---- Create / TryFind ----
 
@@ -91,7 +105,7 @@ public class IniTests
     [Fact]
     public void Create_TrimsInlineCommentsStartingWithHash()
     {
-        var ini = Ini.Create(["[s]", "key=value # trailing comment"]);
+        var ini = CreateOrThrow(["[s]", "key=value # trailing comment"]);
 
         Assert.True(ini.TryFind("s:key", out var value));
         Assert.Equal("value", value);
@@ -100,7 +114,7 @@ public class IniTests
     [Fact]
     public void Create_TrimsSurroundingWhitespaceAroundKeysAndValues()
     {
-        var ini = Ini.Create(["[s]", "   key   =   value   "]);
+        var ini = CreateOrThrow(["[s]", "   key   =   value   "]);
 
         Assert.True(ini.TryFind("s:key", out var value));
         Assert.Equal("value", value);
@@ -109,7 +123,7 @@ public class IniTests
     [Fact]
     public void Create_IgnoresBlankAndWhitespaceOnlyLines()
     {
-        var ini = Ini.Create(["", "   ", "[s]", "", "key=value", "   "]);
+        var ini = CreateOrThrow(["", "   ", "[s]", "", "key=value", "   "]);
 
         Assert.True(ini.TryFind("s:key", out var value));
         Assert.Equal("value", value);
@@ -118,7 +132,7 @@ public class IniTests
     [Fact]
     public void Create_KeepsWhitespaceInsideValue()
     {
-        var ini = Ini.Create(["[s]", "key = hello world"]);
+        var ini = CreateOrThrow(["[s]", "key = hello world"]);
 
         Assert.True(ini.TryFind("s:key", out var value));
         Assert.Equal("hello world", value);
@@ -127,7 +141,7 @@ public class IniTests
     [Fact]
     public void Create_WithFullyCommentedLineDropsParameter()
     {
-        var ini = Ini.Create(["[s]", "# key=value"]);
+        var ini = CreateOrThrow(["[s]", "# key=value"]);
 
         Assert.False(ini.TryFind("s:key", out _));
     }
@@ -138,7 +152,7 @@ public class IniTests
     public void TryFindNested_FindsParameterInNearestParentSection()
     {
         // "c" is not in section [a.b], but it is in the parent section [a].
-        var ini = Ini.Create(["[a]", "c=parent", "[a.b]", "other=x"]);
+        var ini = CreateOrThrow(["[a]", "c=parent", "[a.b]", "other=x"]);
 
         Assert.True(ini.TryFindNested("a.b:c", out var value));
         Assert.Equal("parent", value);
@@ -148,7 +162,7 @@ public class IniTests
     public void TryFindNested_ChecksGivenSectionFirst()
     {
         // "c" exists in the given section [a.b], so that value wins over any parent.
-        var ini = Ini.Create(["[a]", "c=parent", "[a.b]", "c=child"]);
+        var ini = CreateOrThrow(["[a]", "c=parent", "[a.b]", "c=child"]);
 
         Assert.True(ini.TryFindNested("a.b:c", out var value));
         Assert.Equal("child", value);
@@ -158,7 +172,7 @@ public class IniTests
     public void TryFindNested_FallsBackToGlobalSection()
     {
         // "c" only exists globally, stored under ".c".
-        var ini = Ini.Create(["c=global", "[a]", "x=1", "[a.b]", "y=2"]);
+        var ini = CreateOrThrow(["c=global", "[a]", "x=1", "[a.b]", "y=2"]);
 
         Assert.True(ini.TryFindNested("a.b:c", out var value));
         Assert.Equal("global", value);
@@ -199,7 +213,7 @@ public class IniTests
     [Fact]
     public void Create_WithNoLinesYieldsEmptyLookup()
     {
-        var ini = Ini.Create([]);
+        var ini = CreateOrThrow([]);
 
         Assert.False(ini.TryFind(":anything", out _));
     }
@@ -217,7 +231,7 @@ public class IniTests
     [Fact]
     public void Append_AddsParsedLinesToAnExistingIni()
     {
-        var ini = Ini.Empty.Append(SampleLines);
+        var ini = AppendOrThrow(Ini.Empty, SampleLines);
 
         Assert.True(ini.TryFind("one:one_key", out var value));
         Assert.Equal("one_value", value);
@@ -226,9 +240,9 @@ public class IniTests
     [Fact]
     public void Append_MergesIntoAndOverridesAnExistingIni()
     {
-        var ini = Ini
-            .Create(["[s]", "key=first"])
-            .Append(["[s]", "key=second", "other=new"]);
+        var ini = AppendOrThrow(
+            CreateOrThrow(["[s]", "key=first"]),
+            ["[s]", "key=second", "other=new"]);
 
         // The later value wins.
         Assert.True(ini.TryFind("s:key", out var key));
@@ -244,7 +258,7 @@ public class IniTests
     [Fact]
     public void TryFind_ResolvesParameterNameContainingDots()
     {
-        var ini = Ini.Create(["[one]", "a.b.c=from-one"]);
+        var ini = CreateOrThrow(["[one]", "a.b.c=from-one"]);
 
         Assert.True(ini.TryFind("one:a.b.c", out var value));
         Assert.Equal("from-one", value);
@@ -255,7 +269,7 @@ public class IniTests
     {
         // The parameter name "a.b.c" must stay intact while the section walk goes
         // [one.two] -> [one], rather than being split on its own dots.
-        var ini = Ini.Create(["[one]", "a.b.c=from-one", "[one.two]", "x=1"]);
+        var ini = CreateOrThrow(["[one]", "a.b.c=from-one", "[one.two]", "x=1"]);
 
         Assert.True(ini.TryFindNested("one.two:a.b.c", out var value));
         Assert.Equal("from-one", value);
@@ -264,7 +278,7 @@ public class IniTests
     [Fact]
     public void TryFindNested_FallsBackToGlobalParameterWhoseNameContainsDots()
     {
-        var ini = Ini.Create(["a.b.c=global", "[x.y]", "k=1"]);
+        var ini = CreateOrThrow(["a.b.c=global", "[x.y]", "k=1"]);
 
         Assert.True(ini.TryFindNested("x.y:a.b.c", out var value));
         Assert.Equal("global", value);
@@ -274,7 +288,7 @@ public class IniTests
     public void DottedParameter_DoesNotCollideWithNestedSection()
     {
         // "two.k" in [one] and "k" in [one.two] are distinct keys.
-        var ini = Ini.Create(["[one]", "two.k=A", "[one.two]", "k=B"]);
+        var ini = CreateOrThrow(["[one]", "two.k=A", "[one.two]", "k=B"]);
 
         Assert.True(ini.TryFind("one:two.k", out var dotted));
         Assert.Equal("A", dotted);
@@ -288,19 +302,25 @@ public class IniTests
     [Fact]
     public void Create_RejectsColonInSectionName()
     {
-        Assert.ThrowsAny<Exception>(() => Ini.Create(["[a:b]"]));
+        var result = Ini.TryCreate(["[a:b]"]);
+
+        Assert.True(result.IsError);
+        Assert.NotNull(result.ErrorValue);
     }
 
     [Fact]
     public void Create_RejectsColonInParameterName()
     {
-        Assert.ThrowsAny<Exception>(() => Ini.Create(["a:b=v"]));
+        var result = Ini.TryCreate(["a:b=v"]);
+
+        Assert.True(result.IsError);
+        Assert.NotNull(result.ErrorValue);
     }
 
     [Fact]
     public void Create_AllowsColonInsideValue()
     {
-        var ini = Ini.Create(["u=http://example.com"]);
+        var ini = CreateOrThrow(["u=http://example.com"]);
 
         Assert.True(ini.TryFind("u", out var value));
         Assert.Equal("http://example.com", value);

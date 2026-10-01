@@ -27,26 +27,35 @@ two_key=two_value
 
 ### Creating a configuration
 
-Call `create` with the lines of your configuration. It accepts any sequence of
-strings, so you can pass a list you built yourself or the lines you read from a file:
+Call `tryCreate` with the lines of your configuration. It accepts any sequence of
+strings, so you can pass a list you built yourself or the lines you read from a file.
+Configuration files are typically user-authored and untrusted, so a malformed line (for
+example a stray `:` in a section or parameter name) is not a programming error — it is
+data. `tryCreate` never throws for a parse failure; it returns `Result<Ini, string>`, so
+a bad line surfaces as `Error message` instead of an exception:
 
 ```fsharp
 let ini =
-    Ini.create
+    Ini.tryCreate
         [ "global_key=global_value"
           "[one]"
           "one_key=one_value"
           "[one.two]"
           "two_key=two_value" ]
+    |> Result.defaultWith (fun error -> failwith error)
 ```
 
 You can also start from an empty configuration with `Ini.empty` and add lines with
-`Ini.append`. Every function returns a new `Ini`; the original is never mutated, so
-`append` yields a fresh configuration that combines the existing entries with the new
-ones (later values override earlier ones for the same key):
+`Ini.tryAppend`. Every function returns a new `Ini`; the original is never mutated, so
+`tryAppend` yields a fresh configuration that combines the existing entries with the new
+ones (later values override earlier ones for the same key). Like `tryCreate`,
+`tryAppend` returns `Result<Ini, string>` instead of throwing on a malformed line:
 
 ```fsharp
-let ini = Ini.empty |> Ini.append [ "[one]"; "one_key=one_value" ]
+let ini =
+    Ini.empty
+    |> Ini.tryAppend [ "[one]"; "one_key=one_value" ]
+    |> Result.defaultWith (fun error -> failwith error)
 ```
 
 Keys are addressed as `section:parameter`. Dots separate nested section names, and a
@@ -108,7 +117,9 @@ one is found:
 - `:c` — `c` in the global section
 
 ```fsharp
-let ini = Ini.create [ "[a]"; "c=parent"; "[a.b]"; "other=value" ]
+let ini =
+    Ini.tryCreate [ "[a]"; "c=parent"; "[a.b]"; "other=value" ]
+    |> Result.defaultWith (fun error -> failwith error)
 
 let value = ini |> Ini.tryFindNested "a.b:c"
 // value = Some "parent"  (inherited from the parent section [a])
@@ -122,15 +133,35 @@ Because the parameter name is taken as a whole, dots inside it are never mistake
 section boundaries. For `one.two:a.b.c` the walk is `one.two:a.b.c` → `one:a.b.c` →
 `:a.b.c`.
 
+### Inspecting a configuration
+
+`Ini` also exposes a small read-only inspection surface, so a loaded configuration is
+not a black box:
+
+- `Ini.isEmpty ini` — `true` when the configuration holds no entries.
+- `Ini.count ini` — the number of stored key-value pairs.
+- `Ini.containsKey key ini` — `true` when the (normalized) key exists.
+- `Ini.keys ini` — a `string seq` of every stored key.
+- `Ini.values ini` — a `string seq` of every stored value, in the same order as `keys`.
+
+```fsharp
+Ini.count ini // 4
+Ini.containsKey "one:one_key" ini // true
+```
+
 ### Parsing rules
 
 - Blank and whitespace-only lines are ignored.
 - Whitespace around keys and values is trimmed; whitespace inside a value is kept
   (`key = hello world` yields `hello world`).
-- Everything after a `#` is treated as a comment and removed. A line that is entirely
-  a comment is dropped.
+- Everything after a `#` or a `;` is treated as a comment and removed. A line that is
+  entirely a comment is dropped.
 - `:` is reserved as the section/parameter separator, so it may not appear in a section
   name or a parameter name. It is allowed inside a *value* (`url=http://example.com`).
+- A line that cannot be parsed (stray text, an unclosed `[section`, whitespace inside a
+  section or parameter name, a reserved `:` in a section or parameter name, and so on)
+  does not throw. `tryCreate`/`tryAppend` return `Error message` for the whole batch
+  instead.
 
 ### Case sensitivity
 
@@ -145,21 +176,33 @@ let value = ini |> Ini.tryFind "ONE:ONE_KEY"
 ### Using Fini from C#
 
 Fini ships a C# friendly facade on the `Ini` type. The same immutable configuration is
-exposed through static factory methods and instance methods, and lookups follow the
-`bool`/`out` `Try...` pattern that C# developers expect.
+exposed through static factory methods and instance methods. Lookups (`TryFind`,
+`TryFindNested`) follow the `bool`/`out` `Try...` pattern that C# developers expect.
+Creation (`TryCreate`, `TryAppend`) returns F#'s `Result<Ini, string>` instead: a
+`bool`/`out` pair can report success or failure, but only `Result` carries *both* the
+parsed `Ini` on success *and* the parse error message on failure in a single value, so
+that is what's used to propagate the error. It is a little more cumbersome from C#
+(`result.IsOk` / `result.ResultValue` / `result.ErrorValue` instead of an `out` parameter),
+but it is the only way to hand back the failure reason without a second method or a
+nullable tuple.
 
-Add a `using` directive for the namespace:
+Add a `using` directive for the namespace (and for `Microsoft.FSharp.Core` to work with
+`Result` conveniently):
 
 ```csharp
 using Fini;
+using Microsoft.FSharp.Core;
 ```
 
 #### Creating a configuration
 
-Call `Ini.Create` with the lines of your configuration. It accepts any `IEnumerable<string>`:
+Call `Ini.TryCreate` with the lines of your configuration. It accepts any
+`IEnumerable<string>` and returns `Result<Ini, string>`: `Ok ini` on success, or
+`Error message` when a line could not be parsed (configuration files are typically
+user-authored, so a parse failure is an expected outcome rather than an exception):
 
 ```csharp
-var ini = Ini.Create(
+var result = Ini.TryCreate(
 [
     "global_key=global_value",
     "[one]",
@@ -167,13 +210,24 @@ var ini = Ini.Create(
     "[one.two]",
     "two_key=two_value"
 ]);
+
+if (result.IsOk)
+{
+    var ini = result.ResultValue;
+}
 ```
 
-Use `Ini.Empty` to start from an empty configuration, and `Append` to add more lines.
-Every operation returns a new `Ini`; the original is never mutated:
+Use `Ini.Empty` to start from an empty configuration, and `TryAppend` to add more lines
+the same way. Every operation returns a new `Ini` wrapped in `Result<Ini, string>`; the
+original is never mutated:
 
 ```csharp
-var ini = Ini.Empty.Append(["[one]", "one_key=one_value"]);
+var result = Ini.Empty.TryAppend(["[one]", "one_key=one_value"]);
+
+if (result.IsOk)
+{
+    var ini = result.ResultValue;
+}
 ```
 
 #### Looking up a value
@@ -203,12 +257,27 @@ to the same global value. A parameter name may contain dots — `one.two:a.b.c` 
 back to each parent section in turn, ending at the global section:
 
 ```csharp
-var ini = Ini.Create(["[a]", "c=parent", "[a.b]", "other=value"]);
+var ini = Ini.TryCreate(["[a]", "c=parent", "[a.b]", "other=value"]).ResultValue;
 
 if (ini.TryFindNested("a.b:c", out var value))
 {
     // value == "parent"  (inherited from the parent section [a])
 }
+```
+
+#### Inspecting a configuration
+
+The facade also exposes the same read-only inspection surface as instance members:
+
+- `ini.IsEmpty` — `true` when the configuration holds no entries.
+- `ini.Count` — the number of stored key-value pairs.
+- `ini.ContainsKey(key)` — `true` when the (normalized) key exists.
+- `ini.Keys` — an `IEnumerable<string>` of every stored key.
+- `ini.Values` — an `IEnumerable<string>` of every stored value, in the same order as `Keys`.
+
+```csharp
+var count = ini.Count; // 4
+var hasKey = ini.ContainsKey("one:one_key"); // true
 ```
 
 #### Case sensitivity
