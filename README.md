@@ -154,7 +154,7 @@ Ini.containsKey "one:one_key" ini // true
 - Blank and whitespace-only lines are ignored.
 - Whitespace around keys and values is trimmed; whitespace inside a value is kept
   (`key = hello world` yields `hello world`).
-- Everything after a `#` or a `;` is treated as a comment and removed. A line that is
+- Everything after a `#` is treated as a comment and removed. A line that is
   entirely a comment is dropped.
 - `:` is reserved as the section/parameter separator, so it may not appear in a section
   name or a parameter name. It is allowed inside a *value* (`url=http://example.com`).

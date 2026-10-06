@@ -85,9 +85,9 @@ Adding `count`/`containsKey`/`toSeq` plus `toString` would close most of this ch
 
 ### 3. No test covers `;` comment stripping
 
-The README now documents that both `#` and `;` start comments, and the parser strips both.
+~~The README now documents that both `#` and `;` start comments, and the parser strips both.
 There is still no test asserting that a `;` comment is removed, so the behavior is
-unguarded against regressions. Add a covering test in both the F# and C# suites.
+unguarded against regressions. Add a covering test in both the F# and C# suites.~~
 
 ### 4. Two nullness warnings in the C# facade *(resolved)*
 

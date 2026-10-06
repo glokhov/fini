@@ -28,16 +28,6 @@ module private String =
         let s = nullArgCheck "s" s
         lastIndexOf '.' s
 
-    let inline takeBefore c s =
-        match indexOf c s with
-        | -1 -> s
-        | index -> s[.. index - 1]
-
-    let inline ensureSeparator (s: string) =
-        match nullArgCheck "s" s with
-        | s when s.Contains ':' -> s
-        | s -> ":" + s
-
 [<AutoOpen>]
 module private Parser =
     [<Struct>]
@@ -114,6 +104,16 @@ type Ini = private { Map: Map<Key, string> }
 
 [<RequireQualifiedAccess>]
 module Ini =
+    let inline ensureSeparator (s: string) =
+        match nullArgCheck "s" s with
+        | s when s.Contains ':' -> s
+        | s -> ":" + s
+
+    let inline takeBefore c s =
+        match indexOf c s with
+        | -1 -> s
+        | index -> s[.. index - 1]
+
     let empty = { Map = Map.empty }
 
     let isEmpty ini = Map.isEmpty ini.Map
@@ -142,7 +142,6 @@ module Ini =
         let lines =
             nullArgCheck "lines" lines
             |> Seq.map (takeBefore '#')
-            |> Seq.map (takeBefore ';')
             |> Seq.map trim
             |> Seq.filter isNotEmpty
             |> Seq.map parseLine
