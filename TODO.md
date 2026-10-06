@@ -8,25 +8,27 @@ before the features that depend on them, because they change the key model or th
 
 ---
 
-## 1. Key model is ambiguous (blocker)
+## 1. Key model is ambiguous — **done**
 
-`:` is currently a legal character in both section and parameter names — neither `sectionRegex` nor
-`parameterRegex` excludes it. Two different documents therefore collapse onto the same key:
+Resolved by option **(a)**: `:` is excluded from the name charset in both `sectionRegex` and
+`parameterRegex` (`[^=:;#\ \[\]]+`). The colon is now reserved purely as the key separator.
 
 ```fsharp
-Ini.tryCreate [ "[a:b]"; "x = 1" ] |> Result.map Ini.keys   // Ok [ "a:b:x" ]
-Ini.tryCreate [ "[a]"; "b:x = 2" ] |> Result.map Ini.keys   // Ok [ "a:b:x" ]
+Ini.tryCreate [ "[a:b]"; "x = 1" ]   // Error "Cannot parse line: [a:b]."
+Ini.tryCreate [ "[a]"; "b:x = 2" ]   // Error "Cannot parse line: b:x = 2."
 ```
 
-Nothing can split `a:b:x` back into a section and a parameter, so this blocks `toString` (which must
-regroup keys by section) and makes `tryFindNested`'s first-colon split arbitrary.
+Both documents previously produced the same key, `a:b:x`. Every key now holds exactly one `:` and splits
+unambiguously into a section and a parameter, which is what `toString` (§4) needs to regroup keys by
+section, and it makes `tryFindNested`'s first-colon split well defined. Values are unaffected and may still
+contain colons (`url = https://example.com:8080`).
 
-- [ ] Decide the fix:
-  - **(a)** exclude `:` from the name charset in both regexes — smallest change, makes the flattened key a
-    bijection, breaking only for documents that use `:` in a name;
-  - **(b)** split on the last `:` rather than the first — keeps `:` legal in section names only;
-  - **(c)** stop flattening: store `Map<string, Map<string, string>>` or `Map<string * string, string>`.
-- [ ] Whichever is chosen, add tests pinning that a section name and a parameter name cannot be confused.
+- [x] Decide the fix — option (a).
+- [x] Tests pinning that a section name and a parameter name cannot be confused.
+- [x] README name charset updated to include `:`.
+
+Note for §5: if escaping is later extended to names, `:` must stay excluded or escapable-only, otherwise
+this ambiguity returns.
 
 ## 2. Mutation API
 
@@ -97,27 +99,58 @@ Documented in the README as unsupported and planned. Inline comments cannot be a
 - [ ] Decide whether escaping also applies to section and parameter names, which would let names contain
       characters currently rejected outright.
 
-## 6. API surface and correctness fixes
+## 6. API surface and correctness fixes — **done**
 
-- [ ] `Fini.Key` is a **publicly exported type with private fields**, so callers can see it but cannot
-      construct one. Make it `internal`.
-- [ ] `Key.Equals` and `Key.CompareTo` raise `invalidArg` when given a non-`Key` argument. `Object.Equals`
-      is contractually required to return `false` instead. Currently unreachable from outside because no
-      `Key` can be obtained; fix alongside the visibility change.
-- [ ] Annotate the `out` parameters of `TryFind` / `TryFindNested` with `[<MaybeNull>]` /
-      `NotNullWhen(true)`. They are set to `null` on a miss, but the project enables `<Nullable>enable</Nullable>`
-      and the signature claims non-null, so C# flow analysis is wrong today.
-- [ ] `Ini` structural equality already works and is case-insensitive
-      (`[a] x = 1` equals `[A] X = 1`, with matching hash codes). Add tests and mention it in the README,
-      or suppress it deliberately.
+- [x] `Fini.Key` is no longer exported. `type private Key` leaves only `Fini.Ini` and `Fini.IniModule` on
+      the public surface.
+- [x] `Key.Equals` returns `false` for a non-`Key` argument instead of raising, satisfying the
+      `Object.Equals` contract. `IComparable.CompareTo` still raises `ArgumentException`, which is correct —
+      that is the documented behaviour for comparison against an incompatible type.
+- [x] `out` parameters of `TryFind` / `TryFindNested` annotated `[<Out; MaybeNullWhen(false)>]`.
+
+      `NotNullWhen(true)` was tried first and is a **no-op** here. It only constrains a parameter that is
+      already nullable, and F# emits no nullable metadata for this assembly, so C# sees a plain
+      `out string` and assumes non-null regardless of the return value. Verified against a scratch
+      `<Nullable>enable</Nullable>` C# project: with `NotNullWhen(true)` the build was clean, while
+      `MaybeNullWhen(false)` correctly raises `CS8602` on a dereference after a `false` return and stays
+      silent after a `true` one.
+- [x] `Ini` structural equality is covered by tests: name case, declaration order, and comments/blank lines
+      are all ignored; values and their case are respected; hash codes agree. Case-insensitive comparison is
+      documented in the README under "Keys".
+
+      Still open, if it matters: the README documents that *keys* compare case-insensitively, but never
+      states that two `Ini` values can be compared at all. Worth one line under "Keys" or in the API
+      section if `Ini` equality is intended as public API rather than an F# record side effect.
 
 ## 7. Parsing
 
 - [ ] Include the 1-based line number in parse errors. `Cannot parse line: oops.` does not locate the
       problem in a large file.
-- [ ] Consider reporting all parse errors rather than only the first.
-- [ ] `Result.traverse` folds the entire sequence even after an error, so a malformed first line still reads
-      the whole document, and an infinite sequence never terminates. Short-circuit instead.
+- [ ] Consider reporting all parse errors rather than only the first. Note this now conflicts with the
+      short-circuiting below — collecting every error means reading the whole document again, so it would
+      have to be an opt-in variant rather than the default.
+- [x] **Done.** `Result.traverse` folded the entire sequence even after an error. It has been removed, and
+      `tryAppend` now parses straight into the map in a single short-circuiting pass over the enumerator:
+
+      ```fsharp
+      use enumerator = (nullArgCheck "lines" lines).GetEnumerator()
+
+      let rec loop map section =
+          if not (enumerator.MoveNext()) then Ok map
+          else
+              match parseLine enumerator.Current with
+              | Error err -> Error err
+              | Ok line -> ...
+      ```
+
+      This also drops the intermediate whole-document `Line list`, so parsing is one pass instead of two.
+      The explicit `use` is required: abandoning the enumerator early means nothing else will dispose it,
+      which matters for a source like `File.ReadLines` that holds a file handle.
+
+      Measured with an unparsable line at position 3 of 10,000: 3 lines consumed, previously all 10,000.
+      A source with no errors is still read in full. Four regression tests cover it, and all four were
+      confirmed to fail against the previous implementation — the infinite-sequence case hung until its
+      10s timeout.
 - [ ] `tryAppend` restarts at the root section on every call, so appending `port = 9090` lands at `:port`
       regardless of the sections already present. Documented, but consider a variant that continues from the
       last section of the existing document.

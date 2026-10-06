@@ -113,6 +113,69 @@ let ``a parameter may have an empty value`` () =
     let ini = create [ "x =" ]
     Assert.Equal<string option>(Some "", Ini.tryFind "x" ini)
 
+// ---------------------------------------------------------------- whitespace around names
+
+// regression: the name charset excluded a literal space but not a tab, so a tab
+// after a name was captured as part of the name and ended up in the key
+
+[<Fact>]
+let ``a tab after a section name is not part of the key`` () =
+    Assert.Equal<Ini>(create [ "[server]"; "a = 1" ], create [ "[server\t]"; "a = 1" ])
+
+[<Fact>]
+let ``a tab after a parameter name is not part of the key`` () =
+    Assert.Equal<Ini>(create [ "x = 1" ], create [ "x\t= 1" ])
+
+[<Theory>]
+[<InlineData("[name]")>]
+[<InlineData("[name\t]")>]
+[<InlineData("[\tname]")>]
+[<InlineData("[\tname\t]")>]
+[<InlineData("[ name ]")>]
+[<InlineData("[\t name \t]")>]
+[<InlineData("[name\v]")>]
+[<InlineData("[name\f]")>]
+let ``whitespace around a section name is trimmed`` section =
+    let ini = create [ section; "x = 1" ]
+    Assert.Equal<string list>([ "name:x" ], keys ini)
+    Assert.True(ini |> Ini.containsKey "name:x")
+
+[<Theory>]
+[<InlineData("name = 1")>]
+[<InlineData("name\t= 1")>]
+[<InlineData("\tname = 1")>]
+[<InlineData("\tname\t= 1")>]
+[<InlineData("name\t=\t1")>]
+[<InlineData("name\v= 1")>]
+[<InlineData("name\f= 1")>]
+let ``whitespace around a parameter name is trimmed`` line =
+    let ini = create [ line ]
+    Assert.Equal<string list>([ ":name" ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind "name" ini)
+
+[<Fact>]
+let ``whitespace around a dotted section name is trimmed`` () =
+    let ini = create [ "[\talpha.beta\t]"; "x = 1" ]
+    Assert.Equal<string list>([ "alpha.beta:x" ], keys ini)
+
+[<Fact>]
+let ``whitespace around a section header line is ignored`` () =
+    let ini = create [ "\t[alpha]\t"; "x = 1" ]
+    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+
+[<Theory>]
+[<InlineData("[name\tnested]")>]
+[<InlineData("[name nested]")>]
+[<InlineData("na\tme = 1")>]
+[<InlineData("na me = 1")>]
+let ``whitespace inside a name is rejected`` line =
+    Assert.Equal($"Cannot parse line: %s{line}.", error [ line ])
+
+[<Fact>]
+let ``tabs are trimmed from a value but kept inside it`` () =
+    let ini = create [ "x =\ta\tb\t" ]
+    Assert.Equal<string option>(Some "a\tb", Ini.tryFind "x" ini)
+
 [<Fact>]
 let ``only the first equals sign separates name from value`` () =
     let ini = create [ "x = a=b=c" ]
@@ -155,6 +218,109 @@ let ``an unparsable line is an error`` line =
 let ``the first unparsable line determines the error`` () =
     let err = error [ "x = 1"; "oops"; "also bad" ]
     Assert.Equal("Cannot parse line: oops.", err)
+
+// ---------------------------------------------------------------- lazy input
+
+[<Fact>]
+let ``parsing stops at the first unparsable line`` () =
+    let consumed = ref 0
+
+    let lines =
+        seq {
+            for i in 1..10000 do
+                consumed.Value <- consumed.Value + 1
+                if i = 3 then yield "not a valid line" else yield $"x{i} = {i}"
+        }
+
+    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+    Assert.Equal(3, consumed.Value)
+
+[<Fact>]
+let ``the whole sequence is read when every line parses`` () =
+    let consumed = ref 0
+
+    let lines =
+        seq {
+            for i in 1..100 do
+                consumed.Value <- consumed.Value + 1
+                yield $"x{i} = {i}"
+        }
+
+    Assert.Equal(100, Ini.count (create lines))
+    Assert.Equal(100, consumed.Value)
+
+[<Fact>]
+let ``the enumerator is disposed when parsing stops early`` () =
+    // the finally block of a sequence expression runs when the enumerator is
+    // disposed, so this fails if the enumerator is abandoned instead
+    let disposed = ref false
+    let pulledPastError = ref false
+
+    let lines =
+        seq {
+            try
+                yield "ok = 1"
+                yield "not a valid line"
+                pulledPastError.Value <- true
+                yield "never = reached"
+            finally
+                disposed.Value <- true
+        }
+
+    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+    Assert.True(disposed.Value, "the enumerator was not disposed")
+    Assert.False(pulledPastError.Value, "enumeration continued past the error")
+
+[<Fact(Timeout = 10000)>]
+let ``an infinite sequence containing an unparsable line terminates`` () =
+    let lines =
+        seq {
+            let mutable i = 0
+
+            while true do
+                i <- i + 1
+                if i = 5 then yield "not a valid line" else yield $"x{i} = {i}"
+        }
+
+    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+
+// ---------------------------------------------------------------- the colon is reserved
+
+[<Theory>]
+[<InlineData("[alpha:beta]")>]
+[<InlineData("[:alpha]")>]
+[<InlineData("[alpha:]")>]
+let ``a section name cannot contain a colon`` line =
+    let err = error [ line ]
+    Assert.Equal($"Cannot parse line: %s{line}.", err)
+
+[<Theory>]
+[<InlineData("beta:x = 1")>]
+[<InlineData(":x = 1")>]
+[<InlineData("x: = 1")>]
+let ``a parameter name cannot contain a colon`` line =
+    let err = error [ line ]
+    Assert.Equal($"Cannot parse line: %s{line}.", err)
+
+[<Fact>]
+let ``a section name and a parameter name cannot be confused`` () =
+    // both of these once produced the single key "alpha:beta:x"
+    Assert.Equal("Cannot parse line: [alpha:beta].", error [ "[alpha:beta]"; "x = 1" ])
+    Assert.Equal("Cannot parse line: beta:x = 1.", error [ "[alpha]"; "beta:x = 1" ])
+
+[<Fact>]
+let ``every key holds exactly one colon and splits unambiguously`` () =
+    let ini = create [ "timeout = 30"; "[server]"; "host = localhost"; "[server.dev]"; "port = 5000" ]
+
+    for key in Ini.keys ini do
+        Assert.Equal(key.IndexOf ':', key.LastIndexOf ':')
+
+    Assert.Equal<string list>([ ":timeout"; "server.dev:port"; "server:host" ], keys ini)
+
+[<Fact>]
+let ``a value may still contain colons`` () =
+    let ini = create [ "url = https://example.com:8080/a:b" ]
+    Assert.Equal<string option>(Some "https://example.com:8080/a:b", Ini.tryFind "url" ini)
 
 // ---------------------------------------------------------------- lookup
 
@@ -240,6 +406,49 @@ let ``tryFindNested does not search sibling or child sections`` () =
     let ini = create [ "[alpha.beta]"; "x = 1" ]
     Assert.Equal<string option>(None, Ini.tryFindNested "alpha.gamma:x" ini)
     Assert.Equal<string option>(None, Ini.tryFindNested "alpha:x" ini)
+
+// ---------------------------------------------------------------- equality
+
+[<Fact>]
+let ``two inis with the same content are equal`` () =
+    let a = create [ "[alpha]"; "x = 1" ]
+    let b = create [ "[alpha]"; "x = 1" ]
+    Assert.Equal<Ini>(a, b)
+    Assert.Equal(hash a, hash b)
+
+[<Fact>]
+let ``equality ignores the case of section and parameter names`` () =
+    let a = create [ "[alpha]"; "x = 1" ]
+    let b = create [ "[ALPHA]"; "X = 1" ]
+    Assert.Equal<Ini>(a, b)
+    Assert.Equal(hash a, hash b)
+
+[<Fact>]
+let ``equality ignores declaration order`` () =
+    let a = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
+    let b = create [ "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
+    Assert.Equal<Ini>(a, b)
+
+[<Fact>]
+let ``equality ignores comments and blank lines`` () =
+    let a = create [ "[alpha]"; "x = 1" ]
+    let b = create [ "; a comment"; ""; "[alpha]"; "# another"; "x = 1"; "" ]
+    Assert.Equal<Ini>(a, b)
+
+[<Fact>]
+let ``equality respects values`` () =
+    let a = create [ "[alpha]"; "x = 1" ]
+    Assert.NotEqual<Ini>(a, create [ "[alpha]"; "x = 2" ])
+
+[<Fact>]
+let ``equality respects the case of values`` () =
+    let a = create [ "x = Value" ]
+    Assert.NotEqual<Ini>(a, create [ "x = value" ])
+
+[<Fact>]
+let ``an empty ini equals a freshly parsed empty document`` () =
+    Assert.Equal<Ini>(Ini.empty, create [])
+    Assert.Equal<Ini>(Ini.empty, create [ "; only a comment" ])
 
 // ---------------------------------------------------------------- append
 

@@ -176,6 +176,19 @@ public class IniTests
         Assert.Equal("Cannot parse line: oops.", result.ErrorValue);
     }
 
+    // ------------------------------------------------------------ equality
+
+    [Fact]
+    public void EqualityIgnoresNameCaseAndOrder()
+    {
+        var a = Create("[alpha]", "x = 1", "[beta]", "y = 2");
+        var b = Create("[BETA]", "Y = 2", "[ALPHA]", "X = 1");
+
+        Assert.Equal(a, b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+        Assert.NotEqual(a, Create("[alpha]", "x = 1"));
+    }
+
     // ------------------------------------------------------------ enumeration
 
     [Fact]

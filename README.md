@@ -172,7 +172,10 @@ Console.WriteLine(ini.ContainsKey("SERVER:PORT"));  // True
 
 Details:
 
-- A parameter name cannot contain `=`, `;`, `#`, `[`, `]` or whitespace. The same applies to section names.
+- A parameter name cannot contain `=`, `:`, `;`, `#`, `[`, `]` or whitespace. The same applies to section
+  names. `:` is reserved as the key separator, so every key holds exactly one of them and always splits
+  unambiguously into a section and a parameter. A value may still contain `:` freely —
+  `url = https://example.com:8080` is fine.
 - Only the first `=` separates the name from the value, so `x = a=b` gives `x` the value `a=b`.
 - A value may be empty: `x =` yields `Some ""`.
 - Comments are recognised on their own line only — see [Inline comments](#inline-comments) below.

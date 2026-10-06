@@ -1,6 +1,7 @@
 ﻿namespace Fini
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Runtime.InteropServices
 open System.Text.RegularExpressions
 
@@ -40,9 +41,9 @@ module private Parser =
 
     let private commentRegex = Regex(@"^\s*[;#]\s*(.*?)\s*$", RegexOptions.Compiled)
 
-    let private sectionRegex = Regex(@"^\s*\[\s*([^=;#\ \[\]]+)\s*\]\s*$", RegexOptions.Compiled)
+    let private sectionRegex = Regex(@"^\s*\[\s*([^=:;#\s\[\]]+)\s*\]\s*$", RegexOptions.Compiled)
 
-    let private parameterRegex = Regex(@"^\s*([^=;#\ \[\]]+)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
+    let private parameterRegex = Regex(@"^\s*([^=:;#\s\[\]]+)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
 
     let private (|ParseRegex|_|) (regex: Regex) input =
         match regex.Match(input) with
@@ -82,19 +83,8 @@ module private Parser =
         | ParseLine line -> Ok line
         | _ -> Error $"Cannot parse line: %s{text}."
 
-[<RequireQualifiedAccess>]
-module private Result =
-    let traverse (lines: Result<Line, string> seq) =
-        let folder state next =
-            match state, next with
-            | Ok tail, Ok head -> Ok(head :: tail)
-            | Error err, _ -> Error err
-            | _, Error err -> Error err
-
-        Seq.fold folder (Ok []) lines |> Result.map List.rev
-
 [<CustomComparison; CustomEquality>]
-type Key =
+type private Key =
     private
         { Path: string }
 
@@ -107,7 +97,7 @@ type Key =
     override this.Equals(obj) =
         match obj with
         | :? Key as other -> StringComparer.OrdinalIgnoreCase.Equals(this.Path, other.Path)
-        | _ -> invalidArg "obj" "Object is not a Key."
+        | _ -> false
 
     override this.GetHashCode() = StringComparer.OrdinalIgnoreCase.GetHashCode(this.Path)
 
@@ -133,26 +123,23 @@ module Ini =
 
     let values ini = Map.values ini.Map :> string seq
 
-    let tryAppend lines ini =
-        let append map lines =
-            let rec loop map lines section =
-                match lines with
-                | [] -> map
-                | head :: tail ->
-                    match head with
-                    | Whitespace -> loop map tail section
-                    | Comment { Text = _ } -> loop map tail section
-                    | Section { Name = name } -> loop map tail { section with Path = name }
-                    | Parameter { Key = key; Value = value } ->
-                        loop (Map.add { section with Path = section.Path + ":" + key } value map) tail section
+    let tryAppend (lines: string seq) ini =
+        use enumerator = (nullArgCheck "lines" lines).GetEnumerator()
 
-            loop map (Seq.toList lines) { Path = "" }
+        let rec loop map section =
+            if not (enumerator.MoveNext()) then
+                Ok { Map = map }
+            else
+                match parseLine enumerator.Current with
+                | Error err -> Error err
+                | Ok line ->
+                    match line with
+                    | Whitespace -> loop map section
+                    | Comment { Text = _ } -> loop map section
+                    | Section { Name = name } -> loop map { Path = name }
+                    | Parameter { Key = key; Value = value } -> loop (Map.add { Path = section.Path + ":" + key } value map) section
 
-        let lines = nullArgCheck "lines" lines |> Seq.map parseLine |> Result.traverse
-
-        match lines with
-        | Ok lines -> Ok { Map = append ini.Map lines }
-        | Error err -> Error err
+        loop ini.Map { Path = "" }
 
     let tryCreate lines = tryAppend lines empty
 
@@ -194,7 +181,7 @@ type Ini with
 
     member this.TryAppend(lines: string seq) : Result<Ini, string> = Ini.tryAppend lines this
 
-    member this.TryFind(key: string, [<Out>] value: byref<string>) : bool =
+    member this.TryFind(key: string, [<Out; MaybeNullWhen(false)>] value: byref<string>) : bool =
         match Ini.tryFind key this with
         | Some found ->
             value <- found
@@ -203,7 +190,7 @@ type Ini with
             value <- Unchecked.defaultof<_>
             false
 
-    member this.TryFindNested(key: string, [<Out>] value: byref<string>) : bool =
+    member this.TryFindNested(key: string, [<Out; MaybeNullWhen(false)>] value: byref<string>) : bool =
         match Ini.tryFindNested key this with
         | Some found ->
             value <- found
