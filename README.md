@@ -1,290 +1,222 @@
-# INI configuration file [![Nuget Version](https://img.shields.io/nuget/v/Fini)](https://www.nuget.org/packages/Fini)
+# Fini
 
-> ⚠️ **This version is fully incompatible with the previous version 2.**
-> The API has been completely redesigned. Code written against version 2 will not
-> compile or behave the same way. If you are upgrading, expect to rewrite the parts
-> of your code that use Fini.
+[![NuGet](https://img.shields.io/nuget/vpre/Fini.svg)](https://www.nuget.org/packages/Fini)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/glokhov/fini/blob/main/LICENSE)
 
-An ***immutable*** collection of key-value pairs organized in sections.
+A simple, **immutable** INI parser for .NET, written in F#.
 
-### Getting started
+Fini flattens an INI document into a sorted, case-insensitive map of `section:parameter` keys. Sections may be
+dotted (`[server.dev]`), and `tryFindNested` walks that hierarchy upwards so child sections inherit values from
+their parents — useful for layered configuration.
 
-Import the `Fini` namespace:
+## Install
+
+```shell
+dotnet add package Fini --prerelease
+```
+
+Targets `net10.0`.
+
+## Quick start
 
 ```fsharp
 open Fini
+
+let config =
+    [ "; application settings"
+      "timeout = 30"
+      ""
+      "[server]"
+      "host = localhost"
+      "port = 8080"
+      ""
+      "[server.dev]"
+      "port = 5000" ]
+
+match Ini.tryCreate config with
+| Error err -> eprintfn $"%s{err}"
+| Ok ini ->
+    Ini.tryFind "server:host" ini         // Some "localhost"
+    Ini.tryFind "server:port" ini         // Some "8080"
+    Ini.tryFind "timeout" ini             // Some "30"
+
+    // inherited from [server] and from the root section
+    Ini.tryFindNested "server.dev:port" ini     // Some "5000"
+    Ini.tryFindNested "server.dev:host" ini     // Some "localhost"
+    Ini.tryFindNested "server.dev:timeout" ini  // Some "30"
 ```
 
-Suppose you have the following configuration:
-
-```ini
-global_key=global_value
-[one]
-one_key=one_value
-[one.two]
-two_key=two_value
-```
-
-### Creating a configuration
-
-Call `tryCreate` with the lines of your configuration. It accepts any sequence of
-strings, so you can pass a list you built yourself or the lines you read from a file.
-Configuration files are typically user-authored and untrusted, so a malformed line (for
-example a stray `:` in a section or parameter name) is not a programming error — it is
-data. `tryCreate` never throws for a parse failure; it returns `Result<Ini, string>`, so
-a bad line surfaces as `Error message` instead of an exception:
+Fini parses a sequence of lines, so it is agnostic about where the text came from:
 
 ```fsharp
-let ini =
-    Ini.tryCreate
-        [ "global_key=global_value"
-          "[one]"
-          "one_key=one_value"
-          "[one.two]"
-          "two_key=two_value" ]
-    |> Result.defaultWith (fun error -> failwith error)
+open System.IO
+
+let ini = File.ReadLines "app.ini" |> Ini.tryCreate
 ```
 
-You can also start from an empty configuration with `Ini.empty` and add lines with
-`Ini.tryAppend`. Every function returns a new `Ini`; the original is never mutated, so
-`tryAppend` yields a fresh configuration that combines the existing entries with the new
-ones (later values override earlier ones for the same key). Like `tryCreate`,
-`tryAppend` returns `Result<Ini, string>` instead of throwing on a malformed line:
+## Keys
+
+Every parameter is addressed by a single key of the form `section:parameter`:
+
+| INI                        | Key               |
+|----------------------------|-------------------|
+| `x = 1` (before a section) | `:x`              |
+| `[alpha]` + `x = 1`        | `alpha:x`         |
+| `[alpha.beta]` + `x = 1`   | `alpha.beta:x`    |
+
+A key without a `:` is taken to mean the root section, so `"x"` and `":x"` are equivalent.
+
+Keys are compared ordinal case-insensitively — `alpha:x`, `ALPHA:X` and `Alpha:X` all refer to the same
+parameter. Values keep their original case. `keys` and `values` are returned in key order, aligned with each
+other.
+
+## Hierarchical lookup
+
+`tryFind` is an exact lookup. `tryFindNested` starts at the requested section and walks up the dotted
+hierarchy until the parameter is found, ending at the root section:
+
+```
+server.dev.eu:port  ->  server.dev:port  ->  server:port  ->  :port
+```
+
+The most specific match wins, and siblings and children are never searched. Given the config above,
+`tryFindNested "server.dev:port"` returns `Some "5000"` (its own) while `tryFindNested "server.dev:host"`
+returns `Some "localhost"` (inherited from `[server]`).
+
+## API
 
 ```fsharp
-let ini =
-    Ini.empty
-    |> Ini.tryAppend [ "[one]"; "one_key=one_value" ]
-    |> Result.defaultWith (fun error -> failwith error)
+Ini.empty         : Ini
+Ini.isEmpty       : Ini -> bool
+Ini.count         : Ini -> int
+Ini.keys          : Ini -> string seq
+Ini.values        : Ini -> string seq
+Ini.tryCreate     : string seq -> Result<Ini, string>
+Ini.tryAppend     : string seq -> Ini -> Result<Ini, string>
+Ini.containsKey   : string -> Ini -> bool
+Ini.tryFind       : string -> Ini -> string option
+Ini.tryFindNested : string -> Ini -> string option
 ```
 
-Keys are addressed as `section:parameter`. Dots separate nested section names, and a
-colon separates the section path from the parameter name:
-
-- `one:one_key` — the `one_key` parameter in section `[one]`
-- `one.two:two_key` — the `two_key` parameter in section `[one.two]`
-- `:global_key` — a parameter that lives outside any section (note the leading colon)
-
-Because the colon marks the boundary, a parameter name may itself contain dots without
-becoming ambiguous: `one.two:a.b.c` is the `a.b.c` parameter in section `[one.two]`, and
-it is a different key from `one:two.a.b.c`.
-
-### Looking up a value
-
-Call `tryFind` to get a value by its full key. It returns `Some value` when the key
-exists and `None` otherwise:
+The `Ini` is always the last parameter, so lookups compose with `|>`:
 
 ```fsharp
-let value =
-    match ini |> Ini.tryFind "one:one_key" with
-    | Some value -> value
-    | None -> "none"
-// value = "one_value"
-
-let value =
-    match ini |> Ini.tryFind "one:missing" with
-    | Some value -> value
-    | None -> "none"
-// value = "none"
+ini |> Ini.containsKey "server:port"            // true
+ini |> Ini.tryFindNested "server.dev:timeout"   // Some "30"
 ```
 
-Lookups are exact. A key with no colon is read as a bare parameter name in the global
-section, so `global_key` and `:global_key` resolve to the same value.
-
-Global values live at the root and are addressed with a leading colon, which you may omit:
+An `Ini` is immutable. `tryAppend` returns a new instance, merging additional lines over the existing ones;
+later parameters overwrite earlier ones with the same key. Each call starts at the root section, so an
+appended `port = 9090` lands at `:port` unless the appended lines open a section of their own.
 
 ```fsharp
-let value = ini |> Ini.tryFind ":global_key"
-// value = Some "global_value"
+let ini = Ini.tryCreate [ "[server]"; "port = 8080" ]
 
-let value = ini |> Ini.tryFind "global_key"
-// value = Some "global_value"  (the leading colon is added for you)
+ini |> Result.bind (Ini.tryAppend [ "[server]"; "port = 9090" ])
+    |> Result.map (Ini.tryFind "server:port")   // Ok (Some "9090")
 ```
 
-### Falling back to a parent section
+## C#
 
-Call `tryFindNested` to look up a parameter and, if it is not present in the given
-section, fall back to each parent section in turn. The parameter name (everything after
-the colon) stays fixed while the search walks up the section hierarchy, ending at the
-global section. This is useful when an inner section should inherit a setting from an
-outer one.
-
-For the key `a.b:c` the parameter is `c` and the following keys are tried in order until
-one is found:
-
-- `a.b:c` — `c` in section `[a.b]`
-- `a:c` — `c` in the parent section `[a]`
-- `:c` — `c` in the global section
-
-```fsharp
-let ini =
-    Ini.tryCreate [ "[a]"; "c=parent"; "[a.b]"; "other=value" ]
-    |> Result.defaultWith (fun error -> failwith error)
-
-let value = ini |> Ini.tryFindNested "a.b:c"
-// value = Some "parent"  (inherited from the parent section [a])
-```
-
-The value from the nearest section wins, so if `c` also existed in `[a.b]` that value
-would be returned instead. `tryFindNested` returns `Some value` when the parameter is
-found in any section along the way and `None` otherwise.
-
-Because the parameter name is taken as a whole, dots inside it are never mistaken for
-section boundaries. For `one.two:a.b.c` the walk is `one.two:a.b.c` → `one:a.b.c` →
-`:a.b.c`.
-
-### Inspecting a configuration
-
-`Ini` also exposes a small read-only inspection surface, so a loaded configuration is
-not a black box:
-
-- `Ini.isEmpty ini` — `true` when the configuration holds no entries.
-- `Ini.count ini` — the number of stored key-value pairs.
-- `Ini.containsKey key ini` — `true` when the (normalized) key exists.
-- `Ini.keys ini` — a `string seq` of every stored key.
-- `Ini.values ini` — a `string seq` of every stored value, in the same order as `keys`.
-
-```fsharp
-Ini.count ini // 4
-Ini.containsKey "one:one_key" ini // true
-```
-
-### Parsing rules
-
-- Blank and whitespace-only lines are ignored.
-- Whitespace around keys and values is trimmed; whitespace inside a value is kept
-  (`key = hello world` yields `hello world`).
-- Everything after a `#` is treated as a comment and removed. A line that is
-  entirely a comment is dropped.
-- `:` is reserved as the section/parameter separator, so it may not appear in a section
-  name or a parameter name. It is allowed inside a *value* (`url=http://example.com`).
-- A line that cannot be parsed (stray text, an unclosed `[section`, whitespace inside a
-  section or parameter name, a reserved `:` in a section or parameter name, and so on)
-  does not throw. `tryCreate`/`tryAppend` return `Error message` for the whole batch
-  instead.
-
-### Case sensitivity
-
-Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
-`ONE:ONE_KEY` finds the same value as `one:one_key`.
-
-```fsharp
-let value = ini |> Ini.tryFind "ONE:ONE_KEY"
-// value = Some "one_value"
-```
-
-### Using Fini from C#
-
-Fini ships a C# friendly facade on the `Ini` type. The same immutable configuration is
-exposed through static factory methods and instance methods. Lookups (`TryFind`,
-`TryFindNested`) follow the `bool`/`out` `Try...` pattern that C# developers expect.
-Creation (`TryCreate`, `TryAppend`) returns F#'s `Result<Ini, string>` instead: a
-`bool`/`out` pair can report success or failure, but only `Result` carries *both* the
-parsed `Ini` on success *and* the parse error message on failure in a single value, so
-that is what's used to propagate the error. It is a little more cumbersome from C#
-(`result.IsOk` / `result.ResultValue` / `result.ErrorValue` instead of an `out` parameter),
-but it is the only way to hand back the failure reason without a second method or a
-nullable tuple.
-
-Add a `using` directive for the namespace (and for `Microsoft.FSharp.Core` to work with
-`Result` conveniently):
+The same surface is exposed as members, with `TryFind` and `TryFindNested` following the usual
+`bool` + `out` pattern:
 
 ```csharp
 using Fini;
-using Microsoft.FSharp.Core;
-```
 
-#### Creating a configuration
+var result = Ini.TryCreate(File.ReadLines("app.ini"));
 
-Call `Ini.TryCreate` with the lines of your configuration. It accepts any
-`IEnumerable<string>` and returns `Result<Ini, string>`: `Ok ini` on success, or
-`Error message` when a line could not be parsed (configuration files are typically
-user-authored, so a parse failure is an expected outcome rather than an exception):
-
-```csharp
-var result = Ini.TryCreate(
-[
-    "global_key=global_value",
-    "[one]",
-    "one_key=one_value",
-    "[one.two]",
-    "two_key=two_value"
-]);
-
-if (result.IsOk)
+if (result.IsError)
 {
-    var ini = result.ResultValue;
-}
-```
-
-Use `Ini.Empty` to start from an empty configuration, and `TryAppend` to add more lines
-the same way. Every operation returns a new `Ini` wrapped in `Result<Ini, string>`; the
-original is never mutated:
-
-```csharp
-var result = Ini.Empty.TryAppend(["[one]", "one_key=one_value"]);
-
-if (result.IsOk)
-{
-    var ini = result.ResultValue;
-}
-```
-
-#### Looking up a value
-
-`TryFind` returns `true` and sets the `out` parameter when the key exists, and returns
-`false` with a `null` value otherwise:
-
-```csharp
-if (ini.TryFind("one:one_key", out var value))
-{
-    // value == "one_value"
+    Console.Error.WriteLine(result.ErrorValue);
+    return;
 }
 
-if (!ini.TryFind("one:missing", out var missing))
+var ini = result.ResultValue;
+
+if (ini.TryFind("server:host", out var host))
 {
-    // missing == null
+    Console.WriteLine(host);
 }
-```
 
-The leading colon is optional for global keys, so `global_key` and `:global_key` resolve
-to the same global value. A parameter name may contain dots — `one.two:a.b.c` is the
-`a.b.c` parameter in section `[one.two]`.
-
-#### Falling back to a parent section
-
-`TryFindNested` looks up a parameter and, if it is not present in the given section, falls
-back to each parent section in turn, ending at the global section:
-
-```csharp
-var ini = Ini.TryCreate(["[a]", "c=parent", "[a.b]", "other=value"]).ResultValue;
-
-if (ini.TryFindNested("a.b:c", out var value))
+// walks up: server.dev -> server -> root
+if (ini.TryFindNested("server.dev:timeout", out var timeout))
 {
-    // value == "parent"  (inherited from the parent section [a])
+    Console.WriteLine(timeout);
 }
+
+Console.WriteLine(ini.Count);
+Console.WriteLine(ini.ContainsKey("SERVER:PORT"));  // True
 ```
 
-#### Inspecting a configuration
+| Member                                       | Returns            |
+|----------------------------------------------|--------------------|
+| `Ini.Empty`                                  | `Ini`              |
+| `Ini.TryCreate(IEnumerable<string>)`         | `Result<Ini, string>` |
+| `ini.TryAppend(IEnumerable<string>)`         | `Result<Ini, string>` |
+| `ini.IsEmpty`                                | `bool`             |
+| `ini.Count`                                  | `int`              |
+| `ini.Keys`, `ini.Values`                     | `IEnumerable<string>` |
+| `ini.ContainsKey(string)`                    | `bool`             |
+| `ini.TryFind(string, out string)`            | `bool`             |
+| `ini.TryFindNested(string, out string)`      | `bool`             |
 
-The facade also exposes the same read-only inspection surface as instance members:
+## Syntax
 
-- `ini.IsEmpty` — `true` when the configuration holds no entries.
-- `ini.Count` — the number of stored key-value pairs.
-- `ini.ContainsKey(key)` — `true` when the (normalized) key exists.
-- `ini.Keys` — an `IEnumerable<string>` of every stored key.
-- `ini.Values` — an `IEnumerable<string>` of every stored value, in the same order as `Keys`.
+| Line                | Meaning                                                           |
+|---------------------|-------------------------------------------------------------------|
+| empty or whitespace | ignored                                                           |
+| `; text`, `# text`  | comment, ignored                                                  |
+| `[name]`            | opens a section; surrounding whitespace is trimmed                |
+| `name = value`      | a parameter in the current section; both sides are trimmed        |
 
-```csharp
-var count = ini.Count; // 4
-var hasKey = ini.ContainsKey("one:one_key"); // true
+Details:
+
+- A parameter name cannot contain `=`, `;`, `#`, `[`, `]` or whitespace. The same applies to section names.
+- Only the first `=` separates the name from the value, so `x = a=b` gives `x` the value `a=b`.
+- A value may be empty: `x =` yields `Some ""`.
+- Comments are recognised on their own line only — see [Inline comments](#inline-comments) below.
+- A section may be reopened later in the document; its parameters are merged.
+- A duplicate key overwrites the earlier one.
+
+### Inline comments
+
+Inline comments are **not supported**. A `;` or `#` is only a comment marker at the start of a line; anywhere
+inside a value it is an ordinary character. Everything after the first `=`, once trimmed, is the value:
+
+```fsharp
+Ini.tryCreate [ "x = 1 ; note" ]
+|> Result.map (Ini.tryFind "x")   // Ok (Some "1 ; note")  — not Some "1"
 ```
 
-#### Case sensitivity
+This is deliberate. Stripping `;` and `#` from values would make those characters impossible to write, and
+they occur in real configuration values:
 
-Keys are always matched case-insensitively (using `StringComparer.OrdinalIgnoreCase`), so
-`ONE:ONE_KEY` finds the same value as `one:one_key`:
-
-```csharp
-ini.TryFind("ONE:ONE_KEY", out var value);  // true, value == "one_value"
+```ini
+separators = ;#
+fragment   = https://example.com/doc#section
 ```
+
+Supporting inline comments therefore requires an escape mechanism first, so that a value can opt out of
+comment handling. Escaping is planned for a future release; until then, keep comments on their own line:
+
+```ini
+; the request timeout, in seconds
+timeout = 30
+```
+
+
+## Errors
+
+Parsing is total — nothing throws for malformed input. The first line that cannot be parsed is reported:
+
+```fsharp
+Ini.tryCreate [ "not a valid line" ]
+// Error "Cannot parse line: not a valid line."
+```
+
+Passing `null` where a sequence of lines or a key is expected throws `ArgumentNullException`.
+
+## License
+
+[MIT](https://github.com/glokhov/fini/blob/main/LICENSE) © Gennadiy Lokhov
