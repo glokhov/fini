@@ -70,6 +70,9 @@ Keys are compared ordinal case-insensitively — `alpha:x`, `ALPHA:X` and `Alpha
 parameter. Values keep their original case. `keys` and `values` are returned in key order, aligned with each
 other.
 
+Two `Ini` values compare equal when they hold the same keys with the same values. Name case, declaration
+order, comments and blank lines are not part of the comparison; values and their case are.
+
 ## Hierarchical lookup
 
 `tryFind` is an exact lookup. `tryFindNested` starts at the requested section and walks up the dotted
@@ -86,17 +89,31 @@ returns `Some "localhost"` (inherited from `[server]`).
 ## API
 
 ```fsharp
+// construction
 Ini.empty         : Ini
+Ini.tryCreate     : string seq -> Result<Ini, string>
+Ini.tryAppend     : string seq -> Ini -> Result<Ini, string>
+
+// inspection
 Ini.isEmpty       : Ini -> bool
 Ini.count         : Ini -> int
 Ini.keys          : Ini -> string seq
 Ini.values        : Ini -> string seq
-Ini.tryCreate     : string seq -> Result<Ini, string>
-Ini.tryAppend     : string seq -> Ini -> Result<Ini, string>
 Ini.containsKey   : string -> Ini -> bool
+
+// lookup
 Ini.tryFind       : string -> Ini -> string option
 Ini.tryFindNested : string -> Ini -> string option
+Ini.find          : string -> Ini -> string
+Ini.findNested    : string -> Ini -> string
+
+// mutation
+Ini.tryAdd        : string -> string -> Ini -> Result<Ini, string>
+Ini.remove        : string -> Ini -> Ini
 ```
+
+`find` and `findNested` are the partial counterparts of `tryFind` and `tryFindNested`: same lookup, but
+they raise `KeyNotFoundException` instead of returning `None`.
 
 The `Ini` is always the last parameter, so lookups compose with `|>`:
 
@@ -114,6 +131,41 @@ let ini = Ini.tryCreate [ "[server]"; "port = 8080" ]
 
 ini |> Result.bind (Ini.tryAppend [ "[server]"; "port = 9090" ])
     |> Result.map (Ini.tryFind "server:port")   // Ok (Some "9090")
+```
+
+## Adding and removing
+
+`tryAdd` overwrites an existing key, matching the parse semantics where a duplicate key wins. `remove` is a
+no-op when the key is absent. Both return a new `Ini` and leave the original untouched:
+
+```fsharp
+Ini.empty
+|> Ini.tryAdd "server:host" "localhost"
+|> Result.bind (Ini.tryAdd "server:port" "8080")
+|> Result.map (Ini.remove "server:host")
+|> Result.map Ini.count     // Ok 1
+```
+
+`tryAdd` returns a `Result` because a key written in code is not constrained the way a parsed one is. It is
+checked against the same charset the parser accepts, so that everything an `Ini` holds can be written out
+and read back:
+
+```fsharp
+Ini.tryAdd "a b" "1" Ini.empty          // Error "Invalid key: a b."
+Ini.tryAdd "alpha:x:y" "1" Ini.empty    // Error "Invalid key: alpha:x:y."
+Ini.tryAdd "alpha:" "1" Ini.empty       // Error "Invalid key: alpha:."
+```
+
+Keys are never trimmed — not by `tryAdd`, not by lookup — so `" x "` is rejected rather than stored under a
+key that the same string could not find again.
+
+Only `tryAdd` and the parser put keys into the map, so only they validate. `remove` and the lookups take the
+key as given and need no check: a key the parser would reject cannot be in the map, so `tryFind` returns
+`None`, `containsKey` returns `false`, and `remove` has nothing to delete.
+
+```fsharp
+ini |> Ini.containsKey "a b"    // false
+ini |> Ini.remove "a b"         // unchanged
 ```
 
 ## C#
@@ -160,6 +212,19 @@ Console.WriteLine(ini.ContainsKey("SERVER:PORT"));  // True
 | `ini.ContainsKey(string)`                    | `bool`             |
 | `ini.TryFind(string, out string)`            | `bool`             |
 | `ini.TryFindNested(string, out string)`      | `bool`             |
+| `ini.Find(string)`, `ini.FindNested(string)` | `string`           |
+| `ini.TryAdd(string, string)`                 | `Result<Ini, string>` |
+| `ini.Remove(string)`                         | `Ini`              |
+
+`Ini` implements `IEnumerable<KeyValuePair<string, string>>`, so it can be iterated or queried with LINQ.
+Pairs come out in key order, the same order as `Keys` and `Values`:
+
+```csharp
+foreach (var (key, value) in ini)
+{
+    Console.WriteLine($"{key} = {value}");
+}
+```
 
 ## Syntax
 
@@ -218,7 +283,17 @@ Ini.tryCreate [ "not a valid line" ]
 // Error "Cannot parse line: not a valid line."
 ```
 
-Passing `null` where a sequence of lines or a key is expected throws `ArgumentNullException`.
+`tryAdd` is the other function that can fail, and reports the key it rejected:
+
+```fsharp
+Ini.tryAdd "a b" "1" Ini.empty
+// Error "Invalid key: a b."
+```
+
+Those two are the only expected failures. The rest raise:
+
+- `find` and `findNested` raise `KeyNotFoundException` when the key is not present.
+- Passing `null` where a sequence of lines or a key is expected throws `ArgumentNullException`.
 
 ## License
 

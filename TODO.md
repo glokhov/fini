@@ -1,10 +1,12 @@
 # TODO
 
-Current state: `0.3.0-preview*` is **read-only**. A document is parsed into a flattened
-`Map<Key, string>` keyed by `section:parameter`; there is no way to add, remove or emit values.
+Current state: a document is parsed into a flattened `Map<Key, string>` keyed by `section:parameter`.
+Lookup (`tryFind`, `tryFindNested`, `find`, `findNested`, `containsKey`) and single-key mutation (`tryAdd`,
+`remove`) are in place. What is still missing is **emitting** — there is no `toString` / `toLines`, so an
+`Ini` cannot be written back out — and pair-wise enumeration.
 
-This file tracks what is needed to get to a read-write API. Items marked **blocker** should be settled
-before the features that depend on them, because they change the key model or the public surface.
+This file tracks what is needed to get to a complete read-write API. Items marked **blocker** should be
+settled before the features that depend on them, because they change the key model or the public surface.
 
 ---
 
@@ -30,35 +32,89 @@ contain colons (`url = https://example.com:8080`).
 Note for §5: if escaping is later extended to names, `:` must stay excluded or escapable-only, otherwise
 this ambiguity returns.
 
-## 2. Mutation API
+## 2. Mutation API — **partly done**
 
 All of these return a new `Ini`; the type stays immutable. Follow the existing convention — **the `Ini` is
 always the last parameter** — so they compose with `|>`.
 
-- [ ] `Ini.add : string -> string -> Ini -> Ini` — overwrite on existing key, matching parse semantics
-      where a duplicate key wins.
-- [ ] `Ini.remove : string -> Ini -> Ini` — no-op when the key is absent.
+- [x] `Ini.tryAdd : string -> string -> Ini -> Result<Ini, string>` — overwrite on existing key, matching parse
+      semantics where a duplicate key wins. Returns `Result` because of the validation decision below.
+- [x] `Ini.remove : string -> Ini -> Ini` — no-op when the key is absent.
+- [x] **Key validation decided: validate where a key enters the map, nowhere else.**
+
+      A key supplied in code can contain characters the parser rejects (whitespace, `=`, `:`, `;`, `#`,
+      `[`, `]`), and without a check it would be possible to build an `Ini` that `toString` (§4) emits and
+      `tryCreate` then refuses to read back. There are exactly two insertion points: `Map.add` in `tryAdd` and
+      `Map.add` in `tryAppend`. The latter is already guarded by `parseLine`, whose section and parameter
+      regexes carry the charset; `tryAdd` is now guarded by `tryParseKey`, which uses the same charset. So every
+      key in the map is well formed, by construction.
+
+      `tryAdd` therefore returns `Result<Ini, string>` with `Error "Invalid key: <key>."`, rather than
+      throwing — it is an expected failure, like a parse error, and composes with `tryCreate` /
+      `tryAppend` under `Result`.
+
+      Everything else stays unvalidated. `remove` is a write but cannot break the invariant, since it only
+      takes keys out; `tryFind`, `find`, `containsKey` and the nested variants only read. A key the parser
+      would reject cannot be present, so the honest answer is a miss, not an error: `tryFind` gives `None`,
+      `containsKey` gives `false`, `remove` is a no-op, `find` raises `KeyNotFoundException`. Validating
+      there would cost a regex match per lookup and turn total functions into `Result`-returning ones for
+      no gain.
+
+      Keys are not trimmed anywhere, so `tryAdd " x "` is rejected rather than stored under a key the same
+      string could not find again — `tryAdd` and `tryFind` agree on every key either of them accepts.
+
+      Consequence for §3: `ofSeq` is an insertion point and needs the same guard as `tryAdd`, hence
+      `tryOfSeq` or an `ofSeq` returning `Result`.
+- [x] C# members: `TryAdd` returning `Result<Ini, string>` and `Remove` returning a new `Ini`.
 - [ ] `Ini.change : string -> (string option -> string option) -> Ini -> Ini` — wraps `Map.change`, covers
-      add/update/remove in one call.
-- [ ] Decide **key validation**. A key supplied in code can contain characters the parser rejects
-      (whitespace, `=`, `;`, `#`, `[`, `]`, newline). Without a check it is possible to build an `Ini` that
-      `toString` emits and `tryCreate` then refuses to read back. Options: `tryAdd` returning
-      `Result<Ini, string>`, a validating `add` that throws, or silent rejection. This should match whatever
-      escaping (§5) ends up allowing.
+      add/update/remove in one call. Note it is an insertion point, so it needs the `tryAdd` guard and would
+      have to return `Result`; or take an already-validated key.
 - [ ] Section-level operations, natural for the flattened layout:
-      `Ini.removeSection : string -> Ini -> Ini`, and possibly `Ini.renameSection`.
-- [ ] C# members: `Add`, `Remove`, `Change` returning a new `Ini`, mirroring `ImmutableDictionary` style.
+      `Ini.removeSection : string -> Ini -> Ini`, and possibly `Ini.renameSection`. `removeSection` is a
+      pure delete and needs no validation; `renameSection` introduces a name and does.
+- [ ] C# `Change` member, mirroring `ImmutableDictionary` style, once `change` lands.
 
-## 3. Enumeration of key-value pairs
+## 3. Enumeration of key-value pairs — **partly done**
 
-`keys` and `values` are aligned but separate, so callers wanting pairs must `Seq.zip` and walk the map twice.
-`Ini` does not implement `IEnumerable` today, so C# cannot `foreach` it or use LINQ.
+`keys` and `values` are aligned but separate, so callers wanting pairs from F# must `Seq.zip` and walk the
+map twice. C# can now `foreach` an `Ini` and use LINQ over it.
 
-- [ ] `Ini.toSeq : Ini -> (string * string) seq`, plus `toList` / `toArray`.
-- [ ] `Ini.ofSeq : (string * string) seq -> Ini` (or `tryOfSeq`, pending §2 key validation) to close the
-      round-trip with `toSeq`.
-- [ ] Implement `IEnumerable<KeyValuePair<string, string>>` on `Ini` for `foreach`, LINQ and collection
-      expressions in C#.
+- [x] `IEnumerable<KeyValuePair<string, string>>` on `Ini`, plus the non-generic `IEnumerable`, mapping each
+      `Key` to its string `Path` so the private key type stays private. Pairs come out in key order, the same
+      order as `Keys` and `Values`. Documented in the README under "C#".
+
+      The map cannot simply be delegated to, even though `Map<_,_>` implements
+      `IEnumerable<KeyValuePair<_,_>>`: it enumerates `KeyValuePair<Key, string>`, not
+      `KeyValuePair<string, string>`, and `Key` is private so it cannot appear in a public interface. The
+      `Key -> Path` projection is therefore unavoidable. It lives in the generic implementation, and the
+      non-generic one delegates to the generic interface.
+
+      Both implementations were briefly self-recursive — each upcast `this` to the interface it was
+      implementing and called `GetEnumerator` on it, which dispatches straight back to the same member. See
+      the note at the end of this file. Delegating from the non-generic to the *generic* interface is fine,
+      because that is a different interface and so a different member.
+- [x] **`IReadOnlyDictionary` / `IReadOnlyCollection` were tried and removed.** They add surface without
+      adding capability: `Count`, `ContainsKey`, `Keys` and `Values` already exist as members, and the
+      indexer and `TryGetValue` that the interface requires duplicate `Find` and `TryFind` exactly. What
+      they cost is real — two more interfaces to keep consistent, two members that exist only to satisfy
+      them, and the explicit-implementation trap below. `IEnumerable<KeyValuePair<string, string>>` is kept,
+      because `foreach` and LINQ are not otherwise expressible.
+
+      Worth knowing if this is ever revisited: **F# interface implementations are always explicit**, so
+      putting `Count`, `ContainsKey`, `Keys` and `Values` *only* in an `interface ... with` block removes
+      them from `Ini` itself — `error FS0039: The type 'Ini' does not define a field, constructor, or member
+      named 'Count'` from the `Ini` module, and the same loss for C# callers, where an explicit
+      implementation also needs a cast. Those members have to stay intrinsic, with the interface slots
+      forwarding to them.
+- [x] Tests for enumeration: F# and C# both, covering key order, agreement with `keys` / `values`, the empty
+      `Ini`, LINQ, and the non-generic `IEnumerable` path. Ten tests across the two suites. None of this was
+      covered before, which is why the `GetEnumerator` recursion shipped undetected: nothing enumerated an
+      `Ini`.
+- [ ] `Ini.toSeq : Ini -> (string * string) seq`, plus `toList` / `toArray`. Note these yield F# tuples,
+      not `KeyValuePair`, so they are not just an alias for the interface above.
+- [ ] `Ini.tryOfSeq : (string * string) seq -> Result<Ini, string>` to close the round-trip with `toSeq`.
+      It is an insertion point, so by the §2 decision it validates each key through `tryParseKey` and returns
+      `Result`, reporting the first key it rejects exactly as `tryAdd` does.
 - [ ] Consider `Ini.sections : Ini -> string seq` (distinct section names, in order) and
       `Ini.section : string -> Ini -> (string * string) seq` (the parameters of one section). Both are
       awkward to express from the outside once keys are flattened.
@@ -116,11 +172,8 @@ Documented in the README as unsupported and planned. Inline comments cannot be a
       silent after a `true` one.
 - [x] `Ini` structural equality is covered by tests: name case, declaration order, and comments/blank lines
       are all ignored; values and their case are respected; hash codes agree. Case-insensitive comparison is
-      documented in the README under "Keys".
-
-      Still open, if it matters: the README documents that *keys* compare case-insensitively, but never
-      states that two `Ini` values can be compared at all. Worth one line under "Keys" or in the API
-      section if `Ini` equality is intended as public API rather than an F# record side effect.
+      documented in the README under "Keys", together with a line stating that two `Ini` values can be
+      compared at all and what the comparison does and does not take into account.
 
 ## 7. Parsing
 
@@ -162,3 +215,39 @@ Documented in the README as unsupported and planned. Inline comments cannot be a
 - [ ] No CI exists (`.github/workflows` is absent). Add build + test + pack, and publish on tag.
 - [ ] Generate and publish API documentation; `GenerateDocumentationFile` is already on, but the source
       carries no XML doc comments.
+- [ ] Stale build artefacts from the `Fini.v3.Tests` → `Fini.Tests` rename are still in `bin` / `obj`
+      (`.msCoverageSourceRootsMapping_Fini.v3.Tests`, `Fini.v3.Tests.fsproj.nuget.*`). Harmless, but a
+      clean clone will not have them, so a `git clean` of the build output is worth doing before measuring
+      anything.
+
+---
+
+## Note: members that call themselves
+
+Twice now a member has been written as a one-liner that resolves to itself, and both compiled without a
+warning:
+
+```fsharp
+member this.IsEmpty: bool = this.IsEmpty          // not this.Map.IsEmpty
+
+interface IEnumerable<KeyValuePair<string, string>> with
+    member this.GetEnumerator() =
+        let e = this :> IEnumerable<KeyValuePair<string, string>>
+        e.GetEnumerator()                         // dispatches back to this member
+```
+
+Neither fails loudly. `IsEmpty` is a tail call, so it becomes an infinite loop rather than a stack
+overflow — the test run simply never finishes, with no failure and no output to point at. The interface
+upcast looks like delegation to the underlying map but the map is never mentioned; `this` already *is* the
+interface, so the cast is a no-op.
+
+Worth remembering when forwarding a member to the wrapped `Map`: the forwarding target is
+`this.Map.Something`, never `this.Something`. For an interface implementation, delegating to a *different*
+interface is fine — the non-generic `IEnumerable.GetEnumerator` calls
+`(this :> IEnumerable<KeyValuePair<string, string>>).GetEnumerator()` and that resolves to the generic
+member, not to itself. Casting to the interface currently being implemented is what loops.
+
+The reverse direction is safe: inside an `interface ... with` block, `this` is typed as `Ini`, and F#
+resolves `this.Count` to the intrinsic member, because interface slots are not accessible as members of the
+concrete type. So `member this.Count = this.Count` in an interface block terminates — it reads like the
+`IsEmpty` bug but is not one. That only matters if the read-only dictionary interfaces come back.

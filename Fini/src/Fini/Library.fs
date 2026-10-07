@@ -1,9 +1,25 @@
 ﻿namespace Fini
 
 open System
+open System.Collections
+open System.Collections.Generic
 open System.Diagnostics.CodeAnalysis
 open System.Runtime.InteropServices
 open System.Text.RegularExpressions
+
+[<AutoOpen>]
+module private Enumerator =
+    let inline getEnumerator (s: seq<'T>) =
+        let s = nullArgCheck "s" s
+        s.GetEnumerator()
+
+    let inline moveNext (e: IEnumerator<'T>) =
+        let e = nullArgCheck "e" e
+        e.MoveNext()
+
+    let inline current (e: IEnumerator<'T>) =
+        let e = nullArgCheck "e" e
+        e.Current
 
 [<AutoOpen>]
 module private String =
@@ -19,24 +35,56 @@ module private String =
         let s = nullArgCheck "s" s
         s.Contains c
 
+type private Comment = { Text: string }
+
+type private Section = { Name: string }
+
+type private Parameter = { Key: string; Value: string }
+
+type private Line =
+    | Whitespace
+    | Comment of Comment: Comment
+    | Section of Section: Section
+    | Parameter of Parameter: Parameter
+
+[<CustomComparison; CustomEquality>]
+type private Key =
+    private
+        { Path: string }
+
+    static let comparer = StringComparer.OrdinalIgnoreCase
+
+    interface IComparable with
+        member m.CompareTo(obj) =
+            match obj with
+            | :? Key as other -> comparer.Compare(m.Path, other.Path)
+            | _ -> invalidArg "obj" "Object is not a Key."
+
+    override m.Equals(obj) =
+        match obj with
+        | :? Key as other -> comparer.Equals(m.Path, other.Path)
+        | _ -> false
+
+    override m.GetHashCode() = comparer.GetHashCode(m.Path)
+
+[<RequireQualifiedAccess>]
+module private Key =
+    let inline private ensureSeparator key = if contains ':' key then key else ":" + key
+
+    let inline create key = { Path = ensureSeparator key }
+
+    let inline split key =
+        let separator = indexOf ':' key.Path
+        let section = key.Path[.. separator - 1]
+        let param = key.Path[separator..]
+        (section, param)
+
+[<AutoOpen>]
+module private KeyValuePair =
+    let inline toStringKey (pair: KeyValuePair<Key, string>) = KeyValuePair<string, string>(pair.Key.Path, pair.Value)
+
 [<AutoOpen>]
 module private Parser =
-    [<Struct>]
-    type Comment = { Text: string }
-
-    [<Struct>]
-    type Section = { Name: string }
-
-    [<Struct>]
-    type Parameter = { Key: string; Value: string }
-
-    [<Struct>]
-    type Line =
-        | Whitespace
-        | Comment of Comment: Comment
-        | Section of Section: Section
-        | Parameter of Parameter: Parameter
-
     let private whitespaceRegex = Regex(@"^\s*$", RegexOptions.Compiled)
 
     let private commentRegex = Regex(@"^\s*[;#]\s*(.*?)\s*$", RegexOptions.Compiled)
@@ -45,6 +93,10 @@ module private Parser =
 
     let private parameterRegex = Regex(@"^\s*([^=:;#\s\[\]]+)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
 
+    let private sectionKeyRegex = Regex(@"^([^=:;#\s\[\]]*):([^=:;#\s\[\]]+)$", RegexOptions.Compiled)
+
+    let private parameterKeyRegex = Regex(@"^([^=:;#\s\[\]]+)$", RegexOptions.Compiled)
+
     let private (|ParseRegex|_|) (regex: Regex) input =
         match regex.Match(input) with
         | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> ValueSome
@@ -52,137 +104,116 @@ module private Parser =
 
     let private (|ParseWhitespace|_|) text =
         match text with
-        | ParseRegex whitespaceRegex _ -> Whitespace |> ValueSome
+        | ParseRegex whitespaceRegex _ -> ValueSome Whitespace
         | _ -> ValueNone
 
     let private (|ParseComment|_|) text =
         match text with
-        | ParseRegex commentRegex [ text ] -> { Text = text } |> ValueSome
+        | ParseRegex commentRegex [ text ] -> Comment { Text = text } |> ValueSome
         | _ -> ValueNone
 
     let private (|ParseSection|_|) text =
         match text with
-        | ParseRegex sectionRegex [ name ] -> { Name = name } |> ValueSome
+        | ParseRegex sectionRegex [ name ] -> Section { Name = name } |> ValueSome
         | _ -> ValueNone
 
     let private (|ParseParameter|_|) text =
         match text with
-        | ParseRegex parameterRegex [ key; value ] -> { Key = key; Value = value } |> ValueSome
+        | ParseRegex parameterRegex [ key; value ] -> Parameter { Key = key; Value = value } |> ValueSome
         | _ -> ValueNone
 
-    let private (|ParseLine|_|) text =
+    let private (|ParseSectionKey|_|) text =
         match text with
-        | ParseWhitespace whitespace -> whitespace |> ValueSome
-        | ParseComment comment -> comment |> Comment |> ValueSome
-        | ParseSection section -> section |> Section |> ValueSome
-        | ParseParameter parameter -> parameter |> Parameter |> ValueSome
+        | ParseRegex sectionKeyRegex [ section; parameter ] -> ValueSome { Path = section + ":" + parameter }
         | _ -> ValueNone
 
-    let parseLine text =
+    let private (|ParseParameterKey|_|) text =
         match text with
-        | ParseLine line -> Ok line
+        | ParseRegex parameterKeyRegex [ parameter ] -> ValueSome { Path = ":" + parameter }
+        | _ -> ValueNone
+
+    let tryParseLine text =
+        match text with
+        | ParseWhitespace whitespace -> Ok whitespace
+        | ParseComment comment -> Ok comment
+        | ParseSection section -> Ok section
+        | ParseParameter parameter -> Ok parameter
         | _ -> Error $"Cannot parse line: %s{text}."
 
-[<CustomComparison; CustomEquality>]
-type private Key =
+    let tryParseKey text =
+        match text with
+        | ParseSectionKey key -> Ok key
+        | ParseParameterKey key -> Ok key
+        | _ -> Error $"Invalid key: %s{text}."
+
+[<StructuralComparison; StructuralEquality>]
+type Ini =
     private
-        { Path: string }
+        { Map: Map<Key, string> }
 
-    interface IComparable with
-        member this.CompareTo(obj) =
-            match obj with
-            | :? Key as other -> StringComparer.OrdinalIgnoreCase.Compare(this.Path, other.Path)
-            | _ -> invalidArg "obj" "Object is not a Key."
+    static let empty = { Map = Map.empty }
 
-    override this.Equals(obj) =
-        match obj with
-        | :? Key as other -> StringComparer.OrdinalIgnoreCase.Equals(this.Path, other.Path)
-        | _ -> false
+    static member Empty = empty
 
-    override this.GetHashCode() = StringComparer.OrdinalIgnoreCase.GetHashCode(this.Path)
+    static member TryCreate(lines) = empty.TryAppend lines
 
-type Ini = private { Map: Map<Key, string> }
-
-[<RequireQualifiedAccess>]
-module Ini =
-    let inline private ensureSeparator s = if contains ':' s then s else ":" + s
-
-    let inline private firstIndexOfColon s = indexOf ':' s
-
-    let inline private lastIndexOfDot s = lastIndexOf '.' s
-
-    let empty = { Map = Map.empty }
-
-    let isEmpty ini = Map.isEmpty ini.Map
-
-    let containsKey key ini = Map.containsKey { Path = ensureSeparator key } ini.Map
-
-    let count ini = Map.count ini.Map
-
-    let keys ini = Map.keys ini.Map |> Seq.map _.Path
-
-    let values ini = Map.values ini.Map :> string seq
-
-    let tryAppend (lines: string seq) ini =
-        use enumerator = (nullArgCheck "lines" lines).GetEnumerator()
+    member m.TryAppend(lines) =
+        use enumerator = lines |> getEnumerator
 
         let rec loop map section =
-            if not (enumerator.MoveNext()) then
+            if moveNext enumerator |> not then
                 Ok { Map = map }
             else
-                match parseLine enumerator.Current with
+                match current enumerator |> tryParseLine with
                 | Error err -> Error err
                 | Ok line ->
                     match line with
                     | Whitespace -> loop map section
                     | Comment { Text = _ } -> loop map section
-                    | Section { Name = name } -> loop map { Path = name }
-                    | Parameter { Key = key; Value = value } -> loop (Map.add { Path = section.Path + ":" + key } value map) section
+                    | Section { Name = name } -> loop map name
+                    | Parameter { Key = key; Value = value } -> loop (Map.add { Path = section + ":" + key } value map) section
 
-        loop ini.Map { Path = "" }
+        loop m.Map ""
 
-    let tryCreate lines = tryAppend lines empty
+    member m.IsEmpty = m.Map.IsEmpty
 
-    let tryFind key ini = Map.tryFind { Path = ensureSeparator key } ini.Map
+    member m.TryAdd(key, value) =
+        match tryParseKey key with
+        | Ok key -> Ok { Map = Map.add key value m.Map }
+        | Error err -> Error err
 
-    let tryFindNested key ini =
-        let key = ensureSeparator key
-        let separator = firstIndexOfColon key
-        let section = key[.. separator - 1]
-        let param = key[separator..]
+    member internal m.TryFindInternal(key) = m.Map.TryFind(Key.create key)
+
+    member m.TryFind(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
+        match m.TryFindInternal key with
+        | Some found ->
+            value <- found
+            true
+        | None ->
+            value <- Unchecked.defaultof<_>
+            false
+
+    member internal m.TryFindNestedInternal(key) =
+        let key = Key.create key
+        let split = Key.split key
+        let section = fst split
+        let param = snd split
 
         let rec loop section =
-            match Map.tryFind { Path = section + param } ini.Map with
+            match Map.tryFind (section + param |> Key.create) m.Map with
             | Some value -> Some value
             | None ->
                 match section with
                 | "" -> None
                 | _ ->
-                    match lastIndexOfDot section with
+                    match lastIndexOf '.' section with
                     | -1 -> loop ""
                     | index -> loop section[.. index - 1]
 
         loop section
 
-type Ini with
-    static member Empty: Ini = Ini.empty
-
-    member this.IsEmpty: bool = Ini.isEmpty this
-
-    member this.ContainsKey(key: string) : bool = Ini.containsKey key this
-
-    member this.Count: int = Ini.count this
-
-    member this.Keys: string seq = Ini.keys this
-
-    member this.Values: string seq = Ini.values this
-
-    static member TryCreate(lines: string seq) : Result<Ini, string> = Ini.tryCreate lines
-
-    member this.TryAppend(lines: string seq) : Result<Ini, string> = Ini.tryAppend lines this
-
-    member this.TryFind(key: string, [<Out; MaybeNullWhen(false)>] value: byref<string>) : bool =
-        match Ini.tryFind key this with
+    member m.TryFindNested(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
+        match m.TryFindNestedInternal key with
         | Some found ->
             value <- found
             true
@@ -190,11 +221,61 @@ type Ini with
             value <- Unchecked.defaultof<_>
             false
 
-    member this.TryFindNested(key: string, [<Out; MaybeNullWhen(false)>] value: byref<string>) : bool =
-        match Ini.tryFindNested key this with
-        | Some found ->
-            value <- found
-            true
-        | None ->
-            value <- Unchecked.defaultof<_>
-            false
+    member m.Find(key) = Map.find (Key.create key) m.Map
+
+    member m.FindNested(key) =
+        match m.TryFindNestedInternal key with
+        | Some value -> value
+        | None -> raise (KeyNotFoundException $"Key not found: %s{key}.")
+
+    member m.Remove(key) = { Map = Map.remove (Key.create key) m.Map }
+
+    member m.Count = m.Map.Count
+
+    member m.ContainsKey key = Map.containsKey (Key.create key) m.Map
+
+    member m.Keys = m.Map.Keys |> Seq.map _.Path
+
+    member m.Values = m.Map.Values :> string seq
+
+    member private m.Pairs = m.Map |> Seq.map toStringKey
+
+    interface IEnumerable<KeyValuePair<string, string>> with
+        member m.GetEnumerator() = m.Pairs.GetEnumerator()
+
+    interface IEnumerable with
+        member m.GetEnumerator() = (m.Pairs :> IEnumerable).GetEnumerator()
+
+[<RequireQualifiedAccess>]
+module Ini =
+    let empty = Ini.Empty
+
+    let tryCreate lines = Ini.TryCreate lines
+
+    let tryAppend lines (ini: Ini) = ini.TryAppend lines
+
+    // toSeq/toList/toArray
+
+    // ofSeq/ofList/ofArray
+
+    let isEmpty (ini: Ini) = ini.IsEmpty
+
+    let tryAdd key value (ini: Ini) = ini.TryAdd(key, value)
+
+    let tryFind key (ini: Ini) = ini.TryFindInternal key
+
+    let tryFindNested key (ini: Ini) = ini.TryFindNestedInternal key
+
+    let find key (ini: Ini) = ini.Find key
+
+    let findNested key (ini: Ini) = ini.FindNested key
+
+    let remove key (ini: Ini) = ini.Remove key
+
+    let count (ini: Ini) = ini.Count
+
+    let containsKey key (ini: Ini) = ini.ContainsKey key
+
+    let keys (ini: Ini) = ini.Keys
+
+    let values (ini: Ini) = ini.Values
