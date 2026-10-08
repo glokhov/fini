@@ -18,7 +18,7 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>0.3.0-preview09</Version>
+        <Version>0.3.0-preview10</Version>
     </PropertyGroup>
 
     <ItemGroup>
@@ -27,6 +27,10 @@
 
     <ItemGroup>
         <Compile Include="Library.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="FInvoke" Version="0.6.0" />
     </ItemGroup>
 
 </Project>
