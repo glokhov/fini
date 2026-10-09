@@ -109,9 +109,6 @@ let ``a parameter may have an empty value`` () =
 
 // ---------------------------------------------------------------- whitespace around names
 
-// regression: the name charset excluded a literal space but not a tab, so a tab
-// after a name was captured as part of the name and ended up in the key
-
 [<Fact>]
 let ``a tab after a section name is not part of the key`` () =
     Assert.Equal<Ini>(create [ "[server]"; "a = 1" ], create [ "[server\t]"; "a = 1" ])
@@ -700,7 +697,8 @@ let ``appendLines rejects null lines`` () =
 
 [<Fact>]
 let ``appendLines rejects a null line`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.appendLines [ null ] Ini.empty |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.appendLines [ null ] Ini.empty |> ignore)
+    |> ignore
 
 [<Fact>]
 let ``fromLines rejects a null line`` () =
@@ -821,8 +819,7 @@ let ``section is empty for a name with no parameters`` () =
     Assert.Equal<Ini>(Ini.empty, Ini.section "nope" ini)
 
 [<Fact>]
-let ``section of an empty ini is empty`` () =
-    Assert.Equal<Ini>(Ini.empty, Ini.section "alpha" Ini.empty)
+let ``section of an empty ini is empty`` () = Assert.Equal<Ini>(Ini.empty, Ini.section "alpha" Ini.empty)
 
 [<Fact>]
 let ``section does not guard a null name and simply matches nothing`` () =
@@ -1096,11 +1093,11 @@ let ``fromFile raises for a missing file`` () =
 let ``file functions reject an empty path, and a null path`` () =
     Assert.Throws<ArgumentException>(fun () -> Ini.fromFile "" |> ignore) |> ignore
     Assert.Throws<ArgumentException>(fun () -> Ini.appendFile "" Ini.empty |> ignore) |> ignore
-    Assert.Throws<ArgumentException>(fun () -> Ini.toFile "" Ini.empty |> ignore) |> ignore
+    Assert.Throws<ArgumentException>(fun () -> Ini.toFile "" Ini.empty) |> ignore
 
     Assert.Throws<ArgumentNullException>(fun () -> Ini.fromFile null |> ignore) |> ignore
     Assert.Throws<ArgumentNullException>(fun () -> Ini.appendFile null Ini.empty |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.toFile null Ini.empty |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.toFile null Ini.empty) |> ignore
 
 [<Fact>]
 let ``fromFile closes the file after reading it`` () =

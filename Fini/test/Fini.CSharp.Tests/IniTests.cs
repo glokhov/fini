@@ -351,8 +351,8 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
 
-        Assert.Single(ini.Sections);
-        Assert.Equal("alpha", ini.Sections.Single().ToLowerInvariant());
+        var item = Assert.Single(ini.Sections);
+        Assert.Equal("alpha", item.ToLowerInvariant());
     }
 
     [Fact]
@@ -488,7 +488,7 @@ public class IniTests
 
         Assert.Equal(ini.Keys, ini.Select(pair => pair.Key));
         Assert.Equal(ini.Values, ini.Select(pair => pair.Value));
-        Assert.Equal(ini.Count, ini.Count());
+        Assert.Equal(ini.Count, ini.Count);
     }
 
     [Fact]
@@ -514,7 +514,7 @@ public class IniTests
 
         Assert.Equal(["alpha:x", "beta:y"], ini.ToList().Select(pair => pair.Key));
         Assert.Equal(["1", "2"], ini.ToArray().Select(pair => pair.Value));
-        Assert.Equal(ini.KeyValuePairs, ini.ToList());
+        Assert.Equal(ini.KeyValuePairs, [.. ini]);
     }
 
     [Fact]
