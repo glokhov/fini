@@ -1,8 +1,1 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="Fini\src\Fini\Fini.fsproj" Type="Classic F#" />
-  </Folder>
-  <Folder Name="/test/">
-    <Project Path="Fini\test\Fini.Tests\Fini.Tests.fsproj" Type="Classic F#" />
-  </Folder>
-</Solution>
+<Solution>  <Folder Name="/misc/">    <File Path=".gitignore" />    <File Path="global.json" />    <File Path="LICENSE" />    <File Path="README.md" />  </Folder>  <Folder Name="/src/">    <Project Path="Fini/src/Fini/Fini.fsproj" />  </Folder>  <Folder Name="/test/">    <Project Path="Fini/test/Fini.CSharp.Tests/Fini.CSharp.Tests.csproj" />    <Project Path="Fini/test/Fini.Tests/Fini.Tests.fsproj" />  </Folder></Solution>

@@ -15,8 +15,4 @@
         <ProjectReference Include="..\..\src\Fini\Fini.fsproj" />
     </ItemGroup>
 
-    <ItemGroup>
-        <Compile Include="Library.fs" />
-    </ItemGroup>
-
 </Project>

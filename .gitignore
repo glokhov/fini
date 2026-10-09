@@ -3,9 +3,9 @@
 .idea
 .vs
 
+TestResults
+
 bin
 obj
-
-test-results
 
 *.user
