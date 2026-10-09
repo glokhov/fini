@@ -63,6 +63,18 @@ public class IniTests
         Assert.Throws<ArgumentNullException>(() => Ini.FromLines(null!));
     }
 
+    [Fact]
+    public void TryCreateRejectsANullLine()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.FromLines(["x = 1", null!]));
+    }
+
+    [Fact]
+    public void AppendLinesRejectsANullLine()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.Empty.AppendLines([null!]));
+    }
+
     // ------------------------------------------------------------ lookup
 
     [Fact]
@@ -103,6 +115,22 @@ public class IniTests
         Assert.True(ini.ContainsKey("x"));
         Assert.True(ini.TryFind("x", out var value));
         Assert.Equal("1", value);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void LookupsDoNotGuardABlankKey(string key)
+    {
+        var ini = Create("x = 1");
+
+        Assert.False(ini.TryFind(key, out _));
+        Assert.False(ini.TryFindNested(key, out _));
+        Assert.False(ini.ContainsKey(key));
+        Assert.Throws<KeyNotFoundException>(() => ini.Find(key));
+        Assert.Throws<KeyNotFoundException>(() => ini.FindNested(key));
+        Assert.Equal(ini, ini.Remove(key));
     }
 
     // ------------------------------------------------------------ nested lookup
@@ -207,7 +235,6 @@ public class IniTests
     [InlineData("a b")]
     [InlineData("a=b")]
     [InlineData("alpha:x:y")]
-    [InlineData("")]
     public void AddRejectsAnInvalidKey(string key)
     {
         var result = Ini.Empty.Add(key, "1");
@@ -216,10 +243,41 @@ public class IniTests
         Assert.Equal($"Invalid key: {key}.", result.ErrorValue);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void AddRejectsABlankKey(string key)
+    {
+        var result = Ini.Empty.Add(key, "1");
+
+        Assert.True(result.IsError);
+        Assert.Equal($"Invalid key: {key}.", result.ErrorValue);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void AddDoesNotGuardABlankValue(string value)
+    {
+        var result = Ini.Empty.Add("x", value);
+
+        Assert.True(result.IsOk);
+        Assert.True(result.ResultValue.TryFind("x", out var found));
+        Assert.Equal(value, found);
+    }
+
     [Fact]
     public void AddRejectsANullKey()
     {
         Assert.Throws<ArgumentNullException>(() => Ini.Empty.Add(null!, "1"));
+    }
+
+    [Fact]
+    public void AddRejectsANullValue()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Add("x", null!));
     }
 
     [Fact]
@@ -262,6 +320,126 @@ public class IniTests
         var direct = Assert.Throws<KeyNotFoundException>(() => ini.Find("alpha:nope"));
 
         Assert.Equal(direct.Message, nested.Message);
+    }
+
+    // ------------------------------------------------------------ sections
+
+    [Fact]
+    public void SectionsListsEveryDistinctSectionName()
+    {
+        var ini = Create("root = 0", "[alpha]", "x = 1", "[beta]", "y = 2");
+
+        Assert.Equal(["", "alpha", "beta"], ini.Sections);
+    }
+
+    [Fact]
+    public void SectionsHasNoDuplicatesForAReopenedSection()
+    {
+        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2", "[alpha]", "z = 3");
+
+        Assert.Equal(["alpha", "beta"], ini.Sections);
+    }
+
+    [Fact]
+    public void SectionsOfAnEmptyIniIsEmpty()
+    {
+        Assert.Empty(Ini.Empty.Sections);
+    }
+
+    [Fact]
+    public void SectionsTreatsDifferentlyCasedNamesAsOne()
+    {
+        var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
+
+        Assert.Single(ini.Sections);
+        Assert.Equal("alpha", ini.Sections.Single().ToLowerInvariant());
+    }
+
+    [Fact]
+    public void SectionsIncludesAChildSectionAsItsOwnDottedName()
+    {
+        var ini = Create("[alpha]", "x = 1", "[alpha.beta]", "y = 2");
+
+        Assert.Equal(["alpha", "alpha.beta"], ini.Sections);
+    }
+
+    [Fact]
+    public void SectionReturnsOnlyThatSectionsParametersKeyedAsInTheOriginal()
+    {
+        var ini = Create("root = 0", "[alpha]", "x = 1", "[beta]", "y = 2");
+
+        var alpha = ini.Section("alpha");
+
+        Assert.Equal(["alpha:x"], alpha.Keys);
+        Assert.True(alpha.TryFind("alpha:x", out var value));
+        Assert.Equal("1", value);
+        Assert.False(alpha.TryFind("x", out _));
+    }
+
+    [Fact]
+    public void SectionMatchesTheNameCaseInsensitively()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        Assert.Equal(ini.Section("alpha"), ini.Section("ALPHA"));
+    }
+
+    [Fact]
+    public void SectionMergesParametersFromEveryDifferentlyCasedReopening()
+    {
+        var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
+
+        var alpha = ini.Section("alpha");
+
+        Assert.Equal(2, alpha.Count);
+        Assert.Equal(["ALPHA:y", "alpha:x"], alpha.Keys.OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void SectionExcludesADottedChildSection()
+    {
+        var ini = Create("[alpha]", "x = 1", "[alpha.beta]", "y = 2");
+
+        Assert.Equal(["alpha:x"], ini.Section("alpha").Keys);
+        Assert.Equal(["alpha.beta:y"], ini.Section("alpha.beta").Keys);
+    }
+
+    [Fact]
+    public void SectionReturnsTheRootSectionForAnEmptyName()
+    {
+        var ini = Create("root = 0", "[alpha]", "x = 1");
+
+        Assert.Equal([":root"], ini.Section("").Keys);
+    }
+
+    [Fact]
+    public void SectionIsEmptyForANameWithNoParameters()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        Assert.Equal(Ini.Empty, ini.Section("nope"));
+    }
+
+    [Fact]
+    public void SectionOfAnEmptyIniIsEmpty()
+    {
+        Assert.Equal(Ini.Empty, Ini.Empty.Section("alpha"));
+    }
+
+    [Fact]
+    public void SectionDoesNotGuardANullNameAndSimplyMatchesNothing()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        Assert.Equal(Ini.Empty, ini.Section(null!));
+    }
+
+    [Fact]
+    public void SectionRendersBackToAValidStandaloneDocument()
+    {
+        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
+
+        Assert.Equal(["[alpha]", "x = 1"], ini.Section("alpha").ToLines());
     }
 
     // ------------------------------------------------------------ equality
@@ -332,7 +510,6 @@ public class IniTests
     [Fact]
     public void LinqMaterialisesAnIni()
     {
-        // ToList and ToArray come free with IEnumerable, so no ToList member is needed
         var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
 
         Assert.Equal(["alpha:x", "beta:y"], ini.ToList().Select(pair => pair.Key));
@@ -389,6 +566,18 @@ public class IniTests
     }
 
     [Fact]
+    public void OfSeqRejectsAPairWithANullKey()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.OfSeq([KeyValuePair.Create((string)null!, "1")]));
+    }
+
+    [Fact]
+    public void OfSeqRejectsAPairWithANullValue()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.OfSeq([KeyValuePair.Create("x", (string)null!)]));
+    }
+
+    [Fact]
     public void OfSeqAndKeyValuePairsRoundTrip()
     {
         var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
@@ -402,7 +591,6 @@ public class IniTests
     [Fact]
     public void OfSeqAcceptsTheIniItself()
     {
-        // Ini is an IEnumerable<KeyValuePair<string, string>>, which is what OfSeq takes
         var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
 
         var result = Ini.OfSeq(ini);
@@ -441,14 +629,13 @@ public class IniTests
     }
 
     [Fact]
-    public void FromFileReportsAMissingFileInsteadOfThrowing()
+    public void FromFileThrowsForAMissingFile()
     {
         var path = Path.Combine(Path.GetTempPath(), $"fini-cs-missing-{Guid.NewGuid():N}.ini");
 
-        var result = Ini.FromFile(path);
+        var exception = Assert.Throws<FileNotFoundException>(() => Ini.FromFile(path));
 
-        Assert.True(result.IsError);
-        Assert.Contains(path, result.ErrorValue);
+        Assert.Contains(path, exception.Message);
     }
 
     [Fact]
@@ -480,14 +667,13 @@ public class IniTests
     }
 
     [Fact]
-    public void AppendFileReportsAMissingFileInsteadOfThrowing()
+    public void AppendFileThrowsForAMissingFile()
     {
         var path = Path.Combine(Path.GetTempPath(), $"fini-cs-missing-{Guid.NewGuid():N}.ini");
 
-        var result = Ini.Empty.AppendFile(path);
+        var exception = Assert.Throws<FileNotFoundException>(() => Ini.Empty.AppendFile(path));
 
-        Assert.True(result.IsError);
-        Assert.Contains(path, result.ErrorValue);
+        Assert.Contains(path, exception.Message);
     }
 
     [Fact]
@@ -496,6 +682,14 @@ public class IniTests
         Assert.Throws<ArgumentNullException>(() => Ini.FromFile(null!));
         Assert.Throws<ArgumentNullException>(() => Ini.Empty.AppendFile(null!));
         Assert.Throws<ArgumentNullException>(() => Ini.Empty.ToFile(null!));
+    }
+
+    [Fact]
+    public void FileMembersRejectAnEmptyPath()
+    {
+        Assert.Throws<ArgumentException>(() => Ini.FromFile(""));
+        Assert.Throws<ArgumentException>(() => Ini.Empty.AppendFile(""));
+        Assert.Throws<ArgumentException>(() => Ini.Empty.ToFile(""));
     }
 
     // ------------------------------------------------------------ rendering
@@ -525,9 +719,8 @@ public class IniTests
 
         try
         {
-            var written = ini.ToFile(path);
+            ini.ToFile(path);
 
-            Assert.True(written.IsOk, written.IsError ? written.ErrorValue : null);
             Assert.Equal(ini.ToLines(), File.ReadLines(path));
 
             var reread = Ini.FromFile(path);
@@ -542,11 +735,10 @@ public class IniTests
     }
 
     [Fact]
-    public void ToFileReportsAnUnwritablePathInsteadOfThrowing()
+    public void ToFileThrowsForAnUnwritablePath()
     {
-        var result = Ini.Empty.ToFile(Path.GetTempPath());
+        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-no-such-dir-{Guid.NewGuid():N}", "out.ini");
 
-        Assert.True(result.IsError);
-        Assert.NotEmpty(result.ErrorValue);
+        Assert.Throws<DirectoryNotFoundException>(() => Ini.Empty.ToFile(path));
     }
 }

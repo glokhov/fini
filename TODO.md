@@ -3,12 +3,13 @@
 Current state: a document is parsed into a flattened `Map<Key, string>`, where a `Key` is a section and a
 parameter and renders as `section:parameter`.
 Construction (`fromLines`, `fromFile`, `ofSeq`), appending (`appendLines`, `appendFile`), lookup (`tryFind`,
-`tryFindNested`, `find`, `findNested`, `containsKey`), enumeration (`keys`, `values`, `toSeq`), single-key
-mutation (`add`, `remove`) and emitting (`toLines`, `toString`, `toFile`) are all in place, so the API is
-read-write and round-trips. What is left is **escaping** (§6), without which inline comments cannot be
-supported and a value carrying padding or a newline cannot be rendered back.
+`tryFindNested`, `find`, `findNested`, `containsKey`), enumeration (`keys`, `values`, `toSeq`), section
+inspection (`sections`, `section`), single-key mutation (`add`, `remove`) and emitting (`toLines`,
+`toString`, `toFile`) are all in place, so the API is read-write and round-trips. What is left is
+**escaping** (§6), without which inline comments cannot be supported and a value carrying padding or a
+newline cannot be rendered back.
 
-The suite is 264 tests: 213 in `Fini.Tests` (F#) and 51 in `Fini.CSharp.Tests`.
+The suite is 327 tests: 248 in `Fini.Tests` (F#) and 79 in `Fini.CSharp.Tests`.
 
 This file tracks what is needed to get to a complete read-write API. Items marked **blocker** should be
 settled before the features that depend on them, because they change the key model or the public surface.
@@ -67,8 +68,10 @@ The rule: **only a function that returns an `option` carries the `try` prefix.**
 
 Everything else is expected to work, and when it cannot it returns `Result<_, string>` instead of raising —
 `fromLines`, `fromFile`, `ofSeq`, `appendLines`, `appendFile`, `add`. The signature already says the call
-may not produce an `Ini`, so a `try` prefix would add nothing. Functions that cannot fail return their
-value directly: `isEmpty`, `count`, `keys`, `values`, `toSeq`, `containsKey`, `remove`.
+may not produce an `Ini`, so a `try` prefix would add nothing. The convention covers failures of *content*
+and only those — an unparsable line and an invalid key — so the filesystem is outside it (§9) and so is a
+malformed argument. Functions that cannot fail that way return their value directly: `isEmpty`, `count`,
+`keys`, `values`, `toSeq`, `containsKey`, `remove`, `toLines`, `toString`, `toFile`.
 
 - [x] `tryCreate` → `fromLines`, `tryAppend` → `appendLines`, `tryAdd` → `add`.
 - [x] `ofSeq` rather than `tryOfSeq`, likewise for every future insertion point.
@@ -82,12 +85,56 @@ value directly: `isEmpty`, `count`, `keys`, `values`, `toSeq`, `containsKey`, `r
       its own, so it reads exactly like the one `Map.find` raises out of `find`; it used to carry
       `Key not found: <key>.`, which made the same failure look like two different ones. A test asserts
       the two messages agree rather than hardcoding the framework string, which is localisable.
-- [x] `null` is an `ArgumentNullException` everywhere, including paths. `readLines` and `writeLines` now
-      run `nullArgCheck "path"` before handing the path to `File.ReadLines` / `File.WriteAllLines`, so
-      `fromFile null` raises instead of returning `Error "Value cannot be null. (Parameter 'path')"` as it
-      briefly did. An empty path still comes back as `Error`, since it reaches `File.ReadLines` and is a
-      runtime condition rather than a broken call. The README documents the split under "Errors", and both
-      sides are pinned by tests.
+- [x] **Arguments are guarded for `null` only, at the members, in one place.** Three small helpers in a
+      private module:
+
+      ```fsharp
+      let inline requireNonNull paramName (value: 'T) =
+          ArgumentNullException.ThrowIfNull(value, paramName)
+          value
+
+      let inline requireNonNullSeq paramName (value: 'T seq) =
+          ArgumentNullException.ThrowIfNull(value, paramName)
+          value
+
+      let inline requireNonNullPair paramName (pair: KeyValuePair<'K, 'V>) =
+          ArgumentNullException.ThrowIfNull(pair.Key, $"{paramName}.{nameof pair.Key}")
+          ArgumentNullException.ThrowIfNull(pair.Value, $"{paramName}.{nameof pair.Value}")
+          pair
+      ```
+
+      `requireNonNull` guards the key passed to `Key.create` — so every lookup and `remove` — and both the
+      key and the value given to `add`. `requireNonNullSeq` guards the sequence taken by `fromLines`,
+      `appendLines` and `ofSeq`, and `appendLines` additionally guards each individual line it pulls off
+      the enumerator, so a `null` element anywhere inside the sequence is caught at the line that holds it
+      rather than reaching the regex. `requireNonNullPair` guards each pair `ofSeq` pulls off its
+      enumerator, checking `pair.Key` and `pair.Value` separately so the exception names which half was
+      `null`. Each is applied with `nameof`, so the exception names the parameter the caller actually
+      passed — `key`, `value`, `lines`, `pairs`, `pairs.Key` or `pairs.Value`.
+
+      This replaced a per-helper `nullArgCheck` in `Enumerator` and `String` — `getEnumerator`, `moveNext`,
+      `current`, `indexOf`, `lastIndexOf` — which checked the same value repeatedly on the way down and
+      reported the *internal* parameter name when it fired, `(Parameter 's')` rather than
+      `(Parameter 'lines')`. Guarding once, at the boundary, is both cheaper and the only way to get the
+      message right.
+
+      **There is no blank-key or blank-value guard anywhere, and this was deliberately walked back.** An
+      earlier revision added `requireNonBlank`, raising `ArgumentException` for an empty or
+      all-whitespace key or value at every member that takes one. It was removed: a blank key is not a
+      broken call the way a `null` one is, it is simply a key the parser could never have produced, so the
+      honest answer is the same one every other unparseable key gets — `Error "Invalid key: ."` from `add`,
+      and a miss from every reader (`tryFind` returns `None`, `containsKey` returns `false`, `remove` is a
+      no-op, `find` raises `KeyNotFoundException`, exactly as for any other key not in the map). A blank
+      *value* given to `add` is stored verbatim, same as a blank value does when parsed (`x =` yields
+      `Some ""`), so `add` and the parser agree on what a value may be — the one gap that is left is that
+      `add`'s value is `null`-guarded while the parser can never hand it a `null`, which is unavoidable
+      since `add` takes the value as a bare argument. Paths need no guard of their own: `File.ReadLines`
+      and `File.WriteAllLines` already throw `ArgumentNullException` for `null` and `ArgumentException`
+      for `""`, and `readLines` / `writeLines` let them out unchanged (§9).
+
+      Both the guarded and the unguarded paths are pinned by tests in each language, asserting the exact
+      exception type for `null` and the exact non-throwing outcome — `Error`, `None`, `false`, a no-op, or
+      `KeyNotFoundException` — for blank.
 
 ## 3. Mutation API — **partly done**
 
@@ -119,6 +166,14 @@ always the last parameter** — so they compose with `|>`.
 
       Keys are not trimmed anywhere, so `add " x "` is rejected rather than stored under a key the same
       string could not find again — `add` and `tryFind` agree on every key either of them accepts.
+
+      The argument guards of §2 are a separate layer and sit in front of all of this: a `null` key raises
+      before the charset is consulted, at every member that takes one, lookups included. The two do not
+      overlap — an `Error "Invalid key: a b."` says the key could not round-trip through the parser, while
+      an `ArgumentNullException` says there was no key to check. `add`'s *value* is guarded the same way,
+      for `null` only: a blank value is stored verbatim, exactly as `x =` parses to `Some ""`, so `add` and
+      the parser agree on every value, blank or not. The only argument `add` constrains more than the
+      parser does is `null`, which the parser can never produce in the first place.
 - [x] C# members: `Add` returning `Result<Ini, string>` and `Remove` returning a new `Ini`.
 - [x] **`Ini.change` will not be implemented.** `Map.change` takes a key to a `'T option -> 'T option` and
       covers add/update/remove in one call, which reads well on a map the caller owns. An `Ini` is not that
@@ -126,11 +181,12 @@ always the last parameter** — so they compose with `|>`.
       `string -> (string option -> string option) -> Ini -> Result<Ini, string>` — a `Result` wrapping a
       function that itself decides between three outcomes, for a document format whose callers want
       `add` and `remove`. It is a `Map` operation, not an `Ini` one. No C# `Change` member either.
-- [ ] Section-level operations, natural for the flattened layout:
+- [ ] Section-level *mutation*, natural for the flattened layout:
       `Ini.removeSection : string -> Ini -> Ini`, and possibly `Ini.renameSection`. `removeSection` is a
       pure delete and needs no validation, so it returns an `Ini`; `renameSection` introduces a name, so it
       validates and returns `Result`. Cheaper since §1: a `Key` carries its `Section`, so both filter on a
       field instead of splitting a path, and the keys of a section are one contiguous run in key order.
+      Read-only section access — `Ini.sections` and `Ini.section` — is already in place; see §4.
 
 ## 4. Enumeration of key-value pairs — **partly done**
 
@@ -190,10 +246,36 @@ always the last parameter** — so they compose with `|>`.
       change under the caller. An `Ini` is immutable and `toSeq` is a `Seq.map` over an immutable `Map`, so
       enumerating it twice yields the same pairs — tested — and the lazy sequence is already as good as a
       copy. Four more functions, two more C# members, nothing new to do with them.
-- [ ] Consider `Ini.sections : Ini -> string seq` (distinct section names, in order) and
-      `Ini.section : string -> Ini -> KeyValuePair<string, string> seq` (the parameters of one section). Both are
-      awkward to express from the outside once keys are flattened, but straightforward inside since §1:
-      `sections` is the section-change walk `ToLines` already does, and `section` is a contiguous run.
+- [x] **`Ini.sections : Ini -> string seq`** (distinct section names, in key order) and
+      **`Ini.section : string -> Ini -> Ini`** (the parameters of one section, as a standalone `Ini`).
+      Both are cheap since §1: a `Key` carries its `Section`, so `sections` is `Seq.distinct` over the
+      section half of the map's keys, and `section` is `Seq.filter` on the same field, kept as a sub-`Ini`
+      rather than unwrapped to a plain pair sequence so the result stays a first-class `Ini` — `toLines`,
+      `tryFind` and the rest all work on it unchanged.
+
+      `section` matches the requested name against `Key.Section` case-insensitively, the same comparer
+      every other lookup uses, so it merges every differently-cased reopening of that name into one result
+      — `section "alpha"` on a document containing both `[alpha]` and `[ALPHA]` returns both sections'
+      parameters together. Keys in the result keep their original section prefix as declared (`alpha:x`
+      or `ALPHA:y`, whichever each parameter actually had), so a lookup against the result still needs the
+      prefix — `section` filters, it does not re-root. A dotted child is a section in its own right and is
+      never pulled into its parent's: `section "alpha"` excludes `alpha.beta`, matching how `sections`
+      lists them as two separate entries. A name with no parameters, including one absent from the
+      document entirely, returns something structurally equal to `Ini.empty`; `section` does not guard its
+      `name` argument against `null`, since the case-insensitive comparer simply reports no match for it,
+      the same as any other non-existent name — the one place in the surface where a `null` does not raise.
+
+      **`sections` deduplicates `OrdinalIgnoreCase`, not ordinally** — `[alpha]` and `[ALPHA]` contribute
+      one entry, not two, matching every other section comparison in the library (`section`, `toLines`'s
+      header grouping, key equality). This needed a dedicated `Section` type wrapping the name with its own
+      `CustomComparison` / `CustomEquality` — plain `Seq.distinct` on the bare `string` would have
+      deduplicated ordinally, which is wrong here for the same reason a case-sensitive key comparison would
+      be. The casing that survives in the output is **not** the first one declared in the document; it is
+      whichever of that section's `Key`s sorts first under the map's own ordering (section, then
+      parameter), since `Seq.distinct` walks the map in that order and keeps the first match it sees. This
+      is an accident of `Seq.distinct`'s first-wins semantics composed with `Map`'s sorted iteration, not a
+      documented guarantee, and no test pins a specific casing in an ambiguous case — only that the
+      duplicate collapses and the survivor is case-insensitively equal to the expected name.
 - [ ] Keep `keys` / `values` for compatibility.
 
 ## 5. Rendering — **done**
@@ -307,74 +389,81 @@ Documented in the README as unsupported and planned. Inline comments cannot be a
       A source with no errors is still read in full. Four regression tests cover it, and all four were
       confirmed to fail against the previous implementation — the infinite-sequence case hung until its
       10s timeout. `ofSeq` is built the same way and has the same four tests.
-- [ ] `appendLines` restarts at the root section on every call, so appending `port = 9090` lands at `:port`
-      regardless of the sections already present. Documented, but consider a variant that continues from the
-      last section of the existing document.
+- [x] **`appendLines` restarts at the root section on every call, by design — no continuing variant.**
+      Appending is how settings are inherited: a shipped default, then a machine override, then a user one,
+      each layered over the last. For that to work, a layer has to mean the same thing wherever it is
+      applied. Starting at the root section is what guarantees it — every call parses its lines by exactly
+      the rules `fromLines` uses, so a file's keys depend on the file alone. Load order decides which value
+      wins, never which key a line writes to, and `appendLines lines Ini.empty` is `fromLines lines`: one
+      parse rule, not two.
 
-## 9. Files — **partly done**
+      A variant continuing from the last section of the existing document would give up precisely that. The
+      meaning of an override would depend on the last line of whatever preceded it, so a default file that
+      later gained a trailing `[logging]` section would silently retarget every root parameter in every
+      override layered on top — a change in one file moving keys in another. Appending is layering, not
+      concatenation, and `appendLines` is deliberately not "parse the two documents joined together".
+
+      So appending `port = 9090` lands at `:port` regardless of the sections already present; an appended
+      layer opens its own sections when it means to write into them. Documented in the README under
+      "Appending" and pinned by `appendLines starts at the root section`.
+
+## 9. Files — **done**
 
 - [x] `Ini.fromFile : string -> Result<Ini, string>` and `Ini.appendFile : string -> Ini -> Result<Ini, string>`,
       plus `FromFile` / `AppendFile` on the C# side. Both read with `File.ReadLines`, so the document is
-      streamed rather than held in memory twice, and both wrap the call in `FInvoke`'s `Result.invoke`,
-      reporting an IO failure as `Error <exception message>` instead of raising. `File.ReadLines` validates
-      the path and opens the file eagerly — verified for a missing file, an empty path and a directory — so
-      the failure is caught at the call and never escapes later, mid-enumeration. A `null` path is rejected
-      before that by `nullArgCheck`, per §2.
+      streamed rather than held in memory twice, and parsing stops at the first line it cannot read.
 - [x] The file is closed on every path, including when parsing stops at a bad line, because `appendLines`
       disposes the enumerator it took. Two tests pin it by deleting the file afterwards, which fails on
       Windows while a handle is open.
-- [x] `Ini.toFile : string -> Ini -> Result<unit, string>`, wrapping `File.WriteAllLines` through
-      `File.writeLines` the same way `readLines` wraps `File.ReadLines`: a `null` path raises, an unwritable
-      one — a directory, say — comes back as `Error`. The file ends with a line terminator and an existing
-      file is overwritten, both pinned by tests, as is `toFile` + `fromFile` returning an equal `Ini`.
-- [ ] `writeLines` does not guard its `lines` argument, so a `null` there would come back as
-      `Error "Value cannot be null. (Parameter 'contents')"` rather than raising. Unreachable today —
-      `toFile` always passes `toLines`, which is never `null` — but inconsistent with §2 if `writeLines`
-      ever gains another caller.
-- [ ] A `FInvoke` dependency was added for `Result.invoke` / `Result.invoke2`. It is one package for two
-      call sites; keep it only if §5 and §9 use it more widely, otherwise inline the `try ... with`.
+- [x] `Ini.toFile : string -> Ini -> unit`, a bare `File.WriteAllLines` over `toLines()`. The file ends
+      with a line terminator and an existing file is overwritten, both pinned by tests, as is `toFile` +
+      `fromFile` returning an equal `Ini`.
+- [x] **The `Result` these three carry is about the document, not the file.** `readLines` and `writeLines`
+      are now bare calls — no `try ... with` — so every filesystem failure raises exactly as
+      `File.ReadLines` and `File.WriteAllLines` raise it: `FileNotFoundException` for a missing file,
+      `DirectoryNotFoundException` for a missing directory, `UnauthorizedAccessException` for a path that
+      names a directory, `ArgumentException` for an empty path, `ArgumentNullException` for `null`.
+      `fromFile` and `appendFile` return `Error` for a line they cannot
+      parse and for nothing else; `toFile` cannot fail that way at all, which is why it returns `unit`
+      rather than `Result<unit, string>`.
+
+      This replaced wrapping both calls in `try ... with`, catching `:? ArgumentException` to `reraise ()`
+      and reporting the rest as `Error ex.Message`. That read well in isolation but put two unrelated
+      failures in one `Result`: a caller matching on `Error` had to distinguish "this document has a bad
+      line" from "this file is not there", and `toFile` — which has no content failure of its own — carried
+      a `Result<unit, string>` solely to report IO. Splitting them by mechanism means the type says which
+      kind of failure it is. A caller who wants the filesystem as a `Result` too writes the wrapper, which
+      is three lines and is in the README.
+
+      `File.ReadLines` still validates the path and opens the file eagerly — verified: for a missing file
+      it throws at the call, before `GetEnumerator`, not mid-enumeration — so a `fromFile` that returns at
+      all returns with the file open and the handle owned by the enumerator `appendLines` disposes.
+
+      The unwritable-path tests go through a directory that does not exist, which is
+      `DirectoryNotFoundException` everywhere. A path naming a directory that *does* exist is not portable
+      and not even stable within Windows: `Path.GetTempPath()` gives `DirectoryNotFoundException` because
+      of its trailing separator, the same path without it gives `UnauthorizedAccessException`, and
+      `UnauthorizedAccessException` is not an `IOException`, so it does not even share a base class to
+      assert on.
+- [x] `writeLines` needs no guard on its `lines` argument: `File.WriteAllLines` rejects a `null` `contents`
+      eagerly with `ArgumentNullException`, which now reaches the caller unchanged rather than being
+      caught. Unreachable from the public API either way, since `toFile` always passes `toLines()`; it is
+      correct by construction for any future caller.
+- [x] **The `FInvoke` dependency is gone.** It was one package for two call sites, `Result.invoke` /
+      `Result.invoke2` in `readLines` and `writeLines`, and with IO failures no longer in the return type
+      there is nothing left for it to do — both helpers are a single unwrapped call.
+      `Fini.fsproj` has no package references at all.
 
 ## 10. Infrastructure
 
 - [ ] No CI exists (`.github/workflows` is absent). Add build + test + pack, and publish on tag. `dotnet test`
-      runs both suites as they are — 264 tests — so the workflow needs nothing special. Note that
+      runs both suites as they are — 327 tests — so the workflow needs nothing special. Note that
       xunit.v3 4.0 runs on Microsoft.Testing.Platform, which rejects VSTest-era arguments such as
-      `--nologo`, so pass it nothing it does not understand.
+      `--nologo`: passing one makes both projects report `Zero tests ran` and exit 5, which looks like a
+      discovery failure rather than a bad argument. Pass it nothing it does not understand.
 - [ ] Generate and publish API documentation; `GenerateDocumentationFile` is already on, but the source
       carries no XML doc comments.
 - [ ] Stale build artefacts from the `Fini.v3.Tests` → `Fini.Tests` rename are still in `bin` / `obj`
       (`.msCoverageSourceRootsMapping_Fini.v3.Tests`, `Fini.v3.Tests.fsproj.nuget.*`). Harmless, but a
       clean clone will not have them, so a `git clean` of the build output is worth doing before measuring
       anything.
-
----
-
-## Note: members that call themselves
-
-Twice now a member has been written as a one-liner that resolves to itself, and both compiled without a
-warning:
-
-```fsharp
-member this.IsEmpty: bool = this.IsEmpty          // not this.Map.IsEmpty
-
-interface IEnumerable<KeyValuePair<string, string>> with
-    member this.GetEnumerator() =
-        let e = this :> IEnumerable<KeyValuePair<string, string>>
-        e.GetEnumerator()                         // dispatches back to this member
-```
-
-Neither fails loudly. `IsEmpty` is a tail call, so it becomes an infinite loop rather than a stack
-overflow — the test run simply never finishes, with no failure and no output to point at. The interface
-upcast looks like delegation to the underlying map but the map is never mentioned; `this` already *is* the
-interface, so the cast is a no-op.
-
-Worth remembering when forwarding a member to the wrapped `Map`: the forwarding target is
-`this.Map.Something`, never `this.Something`. For an interface implementation, delegating to a *different*
-interface is fine — the non-generic `IEnumerable.GetEnumerator` calls
-`(this.KeyValuePairs :> IEnumerable).GetEnumerator()` and that resolves to the projection, not to itself.
-Casting to the interface currently being implemented is what loops.
-
-The reverse direction is safe: inside an `interface ... with` block, `this` is typed as `Ini`, and F#
-resolves `this.Count` to the intrinsic member, because interface slots are not accessible as members of the
-concrete type. So `member this.Count = this.Count` in an interface block terminates — it reads like the
-`IsEmpty` bug but is not one. That only matters if the read-only dictionary interfaces come back.

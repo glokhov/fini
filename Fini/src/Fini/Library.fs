@@ -7,44 +7,71 @@ open System.Diagnostics.CodeAnalysis
 open System.IO
 open System.Runtime.InteropServices
 open System.Text.RegularExpressions
-open FInvoke
+
+[<AutoOpen>]
+module private Guards =
+    let inline requireNonNull paramName (value: 'T) =
+        ArgumentNullException.ThrowIfNull(value, paramName)
+        value
+
+    let inline requireNonNullSeq paramName (value: 'T seq) =
+        ArgumentNullException.ThrowIfNull(value, paramName)
+        value
+
+    let inline requireNonNullPair paramName (pair: KeyValuePair<'K, 'V>) =
+        ArgumentNullException.ThrowIfNull(pair.Key, $"{paramName}.{nameof pair.Key}")
+        ArgumentNullException.ThrowIfNull(pair.Value, $"{paramName}.{nameof pair.Value}")
+        pair
 
 [<AutoOpen>]
 module private Enumerator =
-    let inline getEnumerator (s: seq<'T>) =
-        let s = nullArgCheck "s" s
-        s.GetEnumerator()
+    let inline getEnumerator (s: 'T seq) = s.GetEnumerator()
 
-    let inline moveNext (e: IEnumerator<'T>) =
-        let e = nullArgCheck "e" e
-        e.MoveNext()
+    let inline moveNext (e: IEnumerator<'T>) = e.MoveNext()
 
-    let inline current (e: IEnumerator<'T>) =
-        let e = nullArgCheck "e" e
-        e.Current
+    let inline current (e: IEnumerator<'T>) = e.Current
 
 [<AutoOpen>]
 module private String =
-    let inline indexOf (c: char) (s: string) =
-        let s = nullArgCheck "s" s
-        s.IndexOf c
+    let inline indexOf (c: char) (s: string) = s.IndexOf c
 
-    let inline lastIndexOf (c: char) (s: string) =
-        let s = nullArgCheck "s" s
-        s.LastIndexOf c
+    let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
 
 [<AutoOpen>]
 module private File =
-    let inline readLines path =
-        Result.invoke File.ReadLines (nullArgCheck "path" path) |> Result.mapError _.Message
+    let inline readLines path = File.ReadLines path
 
-    let inline writeLines path lines =
-        let writeLines: string -> string seq -> Result<unit, exn> = Result.invoke2 File.WriteAllLines
-        writeLines (nullArgCheck "path" path) lines |> Result.mapError _.Message
+    let inline writeLines path (lines: string seq) = File.WriteAllLines(path, lines)
 
-type private Comment = { Text: string }
+type private Comment = string
 
-type private Section = { Name: string }
+[<CustomComparison; CustomEquality>]
+type private Section =
+    { Name: string }
+
+    static let comparer = StringComparer.OrdinalIgnoreCase
+
+    static member Comparer = comparer
+
+    static member Compare(x: Section, y: Section) =
+        match x.Name, y.Name with
+        | "", "" -> 0
+        | "", _ -> -1
+        | _, "" -> 1
+        | _ -> comparer.Compare(x.Name, y.Name)
+
+    interface IComparable with
+        member m.CompareTo(obj) =
+            match obj with
+            | :? Section as other -> Section.Compare(m, other)
+            | _ -> invalidArg "obj" "Object is not a Name."
+
+    override m.Equals(obj) =
+        match obj with
+        | :? Section as other -> comparer.Equals(m.Name, other.Name)
+        | _ -> false
+
+    override m.GetHashCode() = comparer.GetHashCode(m.Name)
 
 type private Parameter = { Key: string; Value: string }
 
@@ -57,25 +84,20 @@ type private Line =
 [<CustomComparison; CustomEquality>]
 type private Key =
     private
-        { Section: string
+        { Section: Section
           Parameter: string }
 
     static let comparer = StringComparer.OrdinalIgnoreCase
 
-    member m.Path = m.Section + ":" + m.Parameter
+    member m.Path = m.Section.Name + ":" + m.Parameter
 
     interface IComparable with
         member m.CompareTo(obj) =
             match obj with
             | :? Key as other ->
-                match m.Section, other.Section with
-                | "", "" -> comparer.Compare(m.Parameter, other.Parameter)
-                | "", _ -> -1
-                | _, "" -> 1
-                | lhs, rhs ->
-                    match comparer.Compare(lhs, rhs) with
-                    | 0 -> comparer.Compare(m.Parameter, other.Parameter)
-                    | result -> result
+                match Section.Compare(m.Section, other.Section) with
+                | 0 -> comparer.Compare(m.Parameter, other.Parameter)
+                | result -> result
             | _ -> invalidArg "obj" "Object is not a Key."
 
     override m.Equals(obj) =
@@ -89,15 +111,17 @@ type private Key =
 [<RequireQualifiedAccess>]
 module private Key =
     let inline create key =
-        match indexOf ':' key with
-        | -1 -> { Section = ""; Parameter = key }
+        match key |> requireNonNull (nameof key) |> indexOf ':' with
+        | -1 -> { Section = { Name = "" }; Parameter = key }
         | index ->
-            { Section = key[.. index - 1]
+            { Section = { Name = key[.. index - 1] }
               Parameter = key[index + 1 ..] }
 
 [<AutoOpen>]
 module private KeyValuePair =
-    let inline convert (pair: KeyValuePair<Key, _>) = KeyValuePair<string, _>(pair.Key.Path, pair.Value)
+    let inline stringKey (pair: KeyValuePair<Key, _>) = KeyValuePair<string, _>(pair.Key.Path, pair.Value)
+
+    let inline toTuple (pair: KeyValuePair<Key, _>) = pair.Key, pair.Value
 
 [<AutoOpen>]
 module private Parser =
@@ -125,7 +149,7 @@ module private Parser =
 
     let private (|ParseComment|_|) text =
         match text with
-        | ParseRegex commentRegex [ text ] -> Comment { Text = text } |> ValueSome
+        | ParseRegex commentRegex [ text ] -> Comment text |> ValueSome
         | _ -> ValueNone
 
     let private (|ParseSection|_|) text =
@@ -140,12 +164,12 @@ module private Parser =
 
     let private (|ParseSectionKey|_|) text =
         match text with
-        | ParseRegex sectionKeyRegex [ section; parameter ] -> ValueSome { Section = section; Parameter = parameter }
+        | ParseRegex sectionKeyRegex [ section; parameter ] -> ValueSome { Section = { Name = section }; Parameter = parameter }
         | _ -> ValueNone
 
     let private (|ParseParameterKey|_|) text =
         match text with
-        | ParseRegex parameterKeyRegex [ parameter ] -> ValueSome { Section = ""; Parameter = parameter }
+        | ParseRegex parameterKeyRegex [ parameter ] -> ValueSome { Section = { Name = "" }; Parameter = parameter }
         | _ -> ValueNone
 
     let tryParseLine text =
@@ -163,7 +187,7 @@ module private Parser =
         | _ -> Error $"Invalid key: %s{key}."
 
     let tryParseKeyValue (pair: KeyValuePair<string, string>) =
-        match tryParseKey pair.Key with
+        match pair.Key |> tryParseKey with
         | Ok key -> Ok(key, pair.Value)
         | Error err -> Error err
 
@@ -177,59 +201,55 @@ type Ini =
     static member Empty = empty
 
     static member OfSeq(pairs) =
-        use enumerator = pairs |> getEnumerator
+        use enumerator = pairs |> requireNonNullSeq (nameof pairs) |> getEnumerator
 
         let rec loop map =
             if moveNext enumerator |> not then
                 Ok { Map = map }
             else
-                match current enumerator |> tryParseKeyValue with
+                match current enumerator |> requireNonNullPair (nameof pairs) |> tryParseKeyValue with
                 | Error err -> Error err
                 | Ok(key, value) -> loop (Map.add key value map)
 
         loop empty.Map
 
-    static member FromFile(path) =
-        match readLines path with
-        | Ok lines -> empty.AppendLines lines
-        | Error err -> Error err
+    static member FromFile(path) = path |> readLines |> empty.AppendLines
 
-    static member FromLines(lines) = empty.AppendLines lines
+    static member FromLines(lines) =
+        lines |> requireNonNullSeq (nameof lines) |> empty.AppendLines
 
-    member m.AppendFile(path) =
-        match readLines path with
-        | Ok lines -> m.AppendLines lines
-        | Error err -> Error err
+    member m.AppendFile(path) = path |> readLines |> m.AppendLines
 
     member m.AppendLines(lines) =
-        use enumerator = lines |> getEnumerator
+        use enumerator = lines |> requireNonNullSeq (nameof lines) |> getEnumerator
 
         let rec loop map section =
             if moveNext enumerator |> not then
                 Ok { Map = map }
             else
-                match current enumerator |> tryParseLine with
+                match current enumerator |> requireNonNull (nameof lines) |> tryParseLine with
                 | Error err -> Error err
                 | Ok line ->
                     match line with
                     | Whitespace -> loop map section
-                    | Comment { Text = _ } -> loop map section
+                    | Comment _ -> loop map section
                     | Section { Name = name } -> loop map name
-                    | Parameter { Key = key; Value = value } -> loop (Map.add { Section = section; Parameter = key } value map) section
+                    | Parameter { Key = key; Value = value } ->
+                        loop (Map.add { Section = { Name = section }; Parameter = key } value map) section
 
         loop m.Map ""
 
     member m.IsEmpty = m.Map.IsEmpty
 
     member m.Add(key, value) =
-        match tryParseKey key with
-        | Ok key -> Ok { Map = Map.add key value m.Map }
+        match key |> requireNonNull (nameof key) |> tryParseKey with
+        | Ok key -> Ok { Map = Map.add key (value |> requireNonNull (nameof value)) m.Map }
         | Error err -> Error err
 
-    member internal m.TryFindInternal(key) = m.Map.TryFind(Key.create key)
+    member internal m.TryFindInternal(key) = m.Map.TryFind(key |> Key.create)
 
     member m.TryFind(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
-        match m.TryFindInternal key with
+        match key |> m.TryFindInternal with
         | Some found ->
             value <- found
             true
@@ -238,23 +258,23 @@ type Ini =
             false
 
     member internal m.TryFindNestedInternal(key) =
-        let key = Key.create key
+        let key = key |> Key.create
 
         let rec loop section =
             match Map.tryFind { Section = section; Parameter = key.Parameter } m.Map with
             | Some value -> Some value
             | None ->
-                match section with
+                match section.Name with
                 | "" -> None
                 | _ ->
-                    match lastIndexOf '.' section with
-                    | -1 -> loop ""
-                    | index -> loop section[.. index - 1]
+                    match lastIndexOf '.' section.Name with
+                    | -1 -> loop { Name = "" }
+                    | index -> loop { Name = section.Name[.. index - 1] }
 
         loop key.Section
 
     member m.TryFindNested(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
-        match m.TryFindNestedInternal key with
+        match key |> m.TryFindNestedInternal with
         | Some found ->
             value <- found
             true
@@ -262,24 +282,30 @@ type Ini =
             value <- Unchecked.defaultof<_>
             false
 
-    member m.Find(key) = Map.find (Key.create key) m.Map
+    member m.Find(key) = Map.find (key |> Key.create) m.Map
 
     member m.FindNested(key) =
-        match m.TryFindNestedInternal key with
+        match key |> m.TryFindNestedInternal with
         | Some value -> value
         | None -> raise (KeyNotFoundException())
 
-    member m.Remove(key) = { Map = Map.remove (Key.create key) m.Map }
+    member m.Remove(key) = { Map = Map.remove (key |> Key.create) m.Map }
 
     member m.Count = m.Map.Count
 
-    member m.ContainsKey key = Map.containsKey (Key.create key) m.Map
+    member m.ContainsKey key = Map.containsKey (key |> Key.create) m.Map
 
     member m.Keys = m.Map.Keys |> Seq.map _.Path
 
     member m.Values = m.Map.Values :> string seq
 
-    member m.KeyValuePairs = m.Map |> Seq.map convert
+    member m.KeyValuePairs = m.Map |> Seq.map stringKey
+
+    member m.Sections = m.Map |> Seq.map _.Key.Section |> Seq.distinct |> Seq.map _.Name
+
+    member m.Section name =
+        let predicate (pair: KeyValuePair<Key, string>) = Section.Comparer.Equals(pair.Key.Section.Name, name)
+        { Map = m.Map |> Seq.filter predicate |> Seq.map toTuple |> Map.ofSeq }
 
     member m.ToLines() =
         seq {
@@ -287,7 +313,7 @@ type Ini =
             let mutable section = ""
 
             for pair in m.Map do
-                let name = pair.Key.Section
+                let name = pair.Key.Section.Name
 
                 if name <> "" && not (String.Equals(name, section, StringComparison.OrdinalIgnoreCase)) then
                     section <- name
@@ -351,6 +377,10 @@ module Ini =
     let keys (ini: Ini) = ini.Keys
 
     let values (ini: Ini) = ini.Values
+
+    let sections (ini: Ini) = ini.Sections
+
+    let section name (ini: Ini) = ini.Section name
 
     let toSeq (ini: Ini) = ini.KeyValuePairs
 

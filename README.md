@@ -53,7 +53,7 @@ file and parses it in one step:
 open System.IO
 
 let a = File.ReadLines "app.ini" |> Ini.fromLines
-let b = Ini.fromFile "app.ini"           // the same, and reports IO errors as Error
+let b = Ini.fromFile "app.ini"           // the same thing, written once
 ```
 
 ## Keys
@@ -92,6 +92,32 @@ The most specific match wins, and siblings and children are never searched. Give
 `tryFindNested "server.dev:port"` returns `Some "5000"` (its own) while `tryFindNested "server.dev:host"`
 returns `Some "localhost"` (inherited from `[server]`).
 
+## Sections
+
+`sections` lists every distinct section name present in the `Ini`, including the root section (`""`) when
+it has parameters of its own. `section` returns the parameters of one named section as a standalone `Ini`,
+keyed exactly as in the original — a key keeps its section prefix, so a lookup against the result still
+needs it:
+
+```fsharp
+let ini =
+    Ini.fromLines [ "root = 0"; "[server]"; "host = localhost"; "[server.dev]"; "port = 5000" ]
+    |> Result.defaultWith failwith
+
+Ini.sections ini   // seq [""; "server"; "server.dev"]
+
+let server = Ini.section "server" ini
+Ini.keys server              // seq ["server:host"]
+Ini.tryFind "server:host" server   // Some "localhost"
+Ini.tryFind "host" server          // None — the prefix is kept, not stripped
+```
+
+`section` matches the name case-insensitively, the same as every other lookup, and merges every differently
+cased reopening of that section into one result. A dotted child section is a section in its own right and is
+never included in its parent's — `section "server"` does not pull in `server.dev`, and `sections` lists both
+as separate entries. A name with no parameters, including one that does not exist at all, returns something
+equal to `Ini.empty` rather than raising.
+
 ## API
 
 ```fsharp
@@ -112,11 +138,13 @@ Ini.keys          : Ini -> string seq
 Ini.values        : Ini -> string seq
 Ini.toSeq         : Ini -> KeyValuePair<string, string> seq
 Ini.containsKey   : string -> Ini -> bool
+Ini.sections      : Ini -> string seq
+Ini.section       : string -> Ini -> Ini
 
 // rendering
 Ini.toLines       : Ini -> string seq
 Ini.toString      : Ini -> string
-Ini.toFile        : string -> Ini -> Result<unit, string>
+Ini.toFile        : string -> Ini -> unit
 
 // lookup
 Ini.tryFind       : string -> Ini -> string option
@@ -146,10 +174,17 @@ absence.
 `KeyNotFoundException` when the key is not there. Use them where a missing key is a bug rather than a case
 to handle, and `tryFind` / `tryFindNested` everywhere else.
 
-Everything that can genuinely fail says so in its return type instead, as `Result<_, string>` — `fromLines`,
-`fromFile`, `ofSeq`, `appendLines`, `appendFile`, `add` and `toFile`. Everything else — `isEmpty`,
-`count`, `keys`, `values`, `toSeq`, `toLines`, `toString`, `containsKey`, `remove` — cannot fail and returns
-its value directly.
+Everything that can fail on its *content* says so in its return type instead, as `Result<_, string>` —
+`fromLines`, `fromFile`, `ofSeq`, `appendLines`, `appendFile` and `add`. There are exactly two such
+failures, an unparsable line and an invalid key, and they are the two a caller is expected to handle.
+
+Nothing else is in the return type. A filesystem failure raises, so `toFile` returns `unit`, and `fromFile`
+and `appendFile` carry a `Result` about the document rather than about the file. A malformed argument
+raises too. See [Errors](#errors).
+
+Everything else — `isEmpty`, `count`, `keys`, `values`, `toSeq`, `toLines`, `toString`, `containsKey`,
+`remove`, `sections`, `section` — returns its value directly: given an argument at all, there is nothing to
+report.
 
 ## Adding and removing
 
@@ -172,18 +207,39 @@ and read back:
 Ini.add "a b" "1" Ini.empty          // Error "Invalid key: a b."
 Ini.add "alpha:x:y" "1" Ini.empty    // Error "Invalid key: alpha:x:y."
 Ini.add "alpha:" "1" Ini.empty       // Error "Invalid key: alpha:."
+Ini.add "" "1" Ini.empty             // Error "Invalid key: ."
 ```
 
 Keys are never trimmed — not by `add`, not by lookup — so `" x "` is rejected rather than stored under a
 key that the same string could not find again.
 
-Only `add`, `ofSeq` and the parser put keys into the map, so only they validate. `remove` and the lookups
-take the key as given and need no check: a key the parser would reject cannot be in the map, so `tryFind`
-returns `None`, `containsKey` returns `false`, and `remove` has nothing to delete.
+A `null` argument is not an `Error` but an `ArgumentNullException`. `add` requires a key *and* a value that
+are not `null`, so the two failures do not mix: an `Error` means the key is not one the parser could read
+back, an exception means the call itself is broken.
+
+```fsharp
+Ini.add null "1" Ini.empty           // raises ArgumentNullException
+Ini.add "x" null Ini.empty           // raises ArgumentNullException
+```
+
+A value is otherwise unconstrained: `add "x" ""` succeeds, just as `x =` does when parsed, so `add` and
+the parser agree on what a value may be. See [Errors](#errors).
+
+Only `add`, `ofSeq` and the parser put keys into the map, so only they check a key against the charset.
+`remove` and the lookups take the key as given: a key the parser would reject cannot be in the map, so
+`tryFind` returns `None`, `containsKey` returns `false`, and `remove` has nothing to delete — including an
+empty key, which is not a special case here, only an unused one.
 
 ```fsharp
 ini |> Ini.containsKey "a b"    // false
 ini |> Ini.remove "a b"         // unchanged
+ini |> Ini.containsKey ""       // false
+```
+
+They do still reject a `null` key, which is a broken call rather than a miss:
+
+```fsharp
+ini |> Ini.containsKey null     // raises ArgumentNullException
 ```
 
 ## Pairs
@@ -212,9 +268,10 @@ Ini.ofSeq [ KeyValuePair("x", "1"); KeyValuePair("a b", "2") ]
 // Error "Invalid key: a b."
 ```
 
-`ofSeq` is an insertion point, so it validates every key exactly as `add` does and reports the first one it
-rejects. A later pair overwrites an earlier one with the same key, and a key without a `:` lands in the root
-section:
+`ofSeq` is an insertion point, so it checks every key against the same charset `add` does and reports the
+first one it rejects. It is not guarded the way `add` is, though: the keys arrive inside a sequence rather
+than as arguments, so a blank one comes back as `Error "Invalid key: ."` instead of raising. A later pair
+overwrites an earlier one with the same key, and a key without a `:` lands in the root section:
 
 ```fsharp
 Ini.ofSeq [ KeyValuePair("alpha:x", "1"); KeyValuePair("ALPHA:X", "2") ] |> Result.map Ini.count
@@ -222,6 +279,13 @@ Ini.ofSeq [ KeyValuePair("alpha:x", "1"); KeyValuePair("ALPHA:X", "2") ] |> Resu
 
 Ini.ofSeq [ KeyValuePair("x", "1") ] |> Result.map Ini.keys
 // Ok (seq [":x"])
+```
+
+A `null` key or a `null` value inside a pair still raises `ArgumentNullException`, same as `add`:
+
+```fsharp
+Ini.ofSeq [ KeyValuePair(null, "1") ]   // raises ArgumentNullException
+Ini.ofSeq [ KeyValuePair("x", null) ]   // raises ArgumentNullException
 ```
 
 ## Appending
@@ -244,6 +308,22 @@ override, then a user one:
 Ini.fromFile "defaults.ini"
 |> Result.bind (Ini.appendFile "/etc/app.ini")
 |> Result.bind (Ini.appendFile "~/.app.ini")
+```
+
+Starting each call at the root section is what makes that layering work. Every layer is parsed by exactly
+the rules `fromLines` uses, so its keys depend on the layer alone: load order decides which value wins,
+never which key a line writes to, and `appendLines lines Ini.empty` is `fromLines lines`. Appending is
+layering, not concatenation — if a call continued from the last section of the document it was applied to,
+adding a trailing `[logging]` section to `defaults.ini` would silently move every root parameter of
+`~/.app.ini` into it.
+
+`appendLines` guards the sequence itself and every line inside it: a `null` sequence or a `null` element
+anywhere in it raises `ArgumentNullException`, exactly as `fromLines` does, since `fromLines` is
+`appendLines` starting from `Ini.empty`.
+
+```fsharp
+Ini.appendLines null ini                // raises ArgumentNullException
+Ini.appendLines [ "x = 1"; null ] ini   // raises ArgumentNullException
 ```
 
 ## Rendering
@@ -278,9 +358,9 @@ Ini.fromLines [ "; a comment"; ""; "[beta]"; "y   =   2"; "[alpha]"; "x = 1"; "[
 ```
 
 What does come back is the content: `fromLines (toLines ini)` equals `ini` for every document the parser
-accepts. The exception is a value that only `add` or `ofSeq` could have introduced, since those do not
-constrain the value — surrounding whitespace is trimmed on the way back in, and a value containing a newline
-renders as two lines, the second of which does not parse:
+accepts. The exception is a value that only `add` or `ofSeq` could have introduced — `add` constrains a
+value only by rejecting a blank one, and `ofSeq` not at all, so surrounding whitespace is trimmed on the
+way back in, and a value containing a newline renders as two lines, the second of which does not parse:
 
 ```fsharp
 Ini.add "x" " padded " Ini.empty |> Result.map Ini.toString   // Ok "x =  padded "  -> reads back as "padded"
@@ -299,21 +379,27 @@ terminator and an existing file is overwritten:
 ```fsharp
 Ini.fromFile "defaults.ini"
 |> Result.bind (Ini.appendFile "~/.app.ini")
-|> Result.bind (Ini.toFile "merged.ini")     // Ok ()
+|> Result.map (Ini.toFile "merged.ini")      // Ok ()
 ```
 
-All three report an IO failure as `Error` rather than raising it, with the message of the underlying
-exception:
+The `Result` those three carry is about the document, not about the file. `fromFile` and `appendFile`
+return `Error` for a line they cannot parse; `toFile` cannot fail that way at all, so it returns `unit`.
+Everything the filesystem can refuse raises, exactly as `File.ReadLines` and `File.WriteAllLines` raise it:
 
 ```fsharp
-Ini.fromFile "no-such-file.ini"
-// Error "Could not find file 'C:\...\no-such-file.ini'."
-
-Ini.fromFile ""
-// Error "The value cannot be an empty string. (Parameter 'path')"
+Ini.fromFile "no-such-file.ini"        // raises FileNotFoundException
+Ini.toFile "no-such-dir/app.ini" ini   // raises DirectoryNotFoundException
+Ini.fromFile ""                        // raises ArgumentException
+Ini.fromFile null                      // raises ArgumentNullException
 ```
 
-A `null` path is the one case they do raise on: it is checked up front, like every other `null` argument.
+So an unreadable file is not an `Error` to match on, it is an exception to handle or to prevent. A caller
+who wants it alongside the parse errors is one wrapper away:
+
+```fsharp
+let tryFromFile path =
+    try Ini.fromFile path with ex -> Error ex.Message
+```
 
 ## C#
 
@@ -361,6 +447,8 @@ Console.WriteLine(ini.ContainsKey("SERVER:PORT"));  // True
 | `ini.Keys`, `ini.Values`                       | `IEnumerable<string>`                 |
 | `ini.KeyValuePairs`                            | `IEnumerable<KeyValuePair<string, string>>`  |
 | `ini.ContainsKey(string)`                      | `bool`                                |
+| `ini.Sections`                                 | `IEnumerable<string>`                 |
+| `ini.Section(string)`                          | `Ini`                                 |
 | `ini.TryFind(string, out string)`              | `bool`                                |
 | `ini.TryFindNested(string, out string)`        | `bool`                                |
 | `ini.Find(string)`, `ini.FindNested(string)`   | `string`                              |
@@ -368,7 +456,7 @@ Console.WriteLine(ini.ContainsKey("SERVER:PORT"));  // True
 | `ini.Remove(string)`                           | `Ini`                                 |
 | `ini.ToLines()`                                | `IEnumerable<string>`                 |
 | `ini.ToString()`                               | `string`                              |
-| `ini.ToFile(string)`                           | `Result<Unit, string>`                |
+| `ini.ToFile(string)`                           | `void`                                |
 
 `Ini` implements `IEnumerable<KeyValuePair<string, string>>`, so it can be iterated or queried with LINQ.
 Pairs come out in key order, the same order as `Keys` and `Values`. `KeyValuePair` deconstructs, so a
@@ -440,7 +528,8 @@ timeout = 30
 
 ## Errors
 
-Parsing is total — nothing throws for malformed input. The first line that cannot be parsed is reported:
+Exactly two failures are in the return type, and both are about content. Parsing is total — nothing throws
+for malformed input — and the first line that cannot be parsed is reported:
 
 ```fsharp
 Ini.fromLines [ "not a valid line" ]
@@ -454,15 +543,37 @@ Ini.add "a b" "1" Ini.empty
 // Error "Invalid key: a b."
 ```
 
-`fromFile` and `appendFile` report an unreadable file the same way, as `Error`, and `toFile` an unwritable
-one. Those are the expected failures, and they are all in the return type. What raises instead:
+Everything else raises:
 
-- `find` and `findNested` raise `KeyNotFoundException` when the key is not present. That is their purpose:
+- **A missing, unreadable or unwritable file, or an empty path.** `fromFile` and `appendFile` let the
+  exception out of `File.ReadLines`, `toFile` out of `File.WriteAllLines`, unchanged — including
+  `ArgumentException` for `""`, which is `File.ReadLines`'s own guard, not Fini's. See [Files](#files).
+- **A missing key, from `find` and `findNested`** — `KeyNotFoundException`. That is their purpose:
   they are the partial counterparts of `tryFind` and `tryFindNested`, for call sites where a missing key is
-  a bug.
-- Passing `null` where a path, a sequence of lines, a sequence of pairs, or a key is expected throws
-  `ArgumentNullException`. An empty path does not — it reaches `File.ReadLines` and comes back as
-  `Error`.
+  a bug. A blank key behaves the same way: it cannot be in the map, so it is simply not found.
+- **A `null` argument** — `ArgumentNullException`. A path, a sequence of lines, every line inside it, a
+  sequence of pairs, the key and value inside each pair, a key, and the value given to `add` are all
+  guarded.
+
+```fsharp
+Ini.add null "1" ini         // raises ArgumentNullException
+Ini.add "x" null ini         // raises ArgumentNullException
+Ini.tryFind null ini         // raises ArgumentNullException
+Ini.fromFile null            // raises ArgumentNullException
+```
+
+A blank key or value is not a broken call: `add "" "1"` and `ofSeq [ KeyValuePair("", "1") ]` both report
+`Error "Invalid key: ."`, since an empty string is not a key the parser could have produced, and a blank
+value is simply stored — `add "x" ""` succeeds, just as `x =` does when parsed. A blank key given to a
+lookup or to `remove` is never in the map either, so it is a miss, not a failure:
+
+```fsharp
+Ini.add "" "1" ini         // Error "Invalid key: ."
+Ini.add "x" "" ini          // Ok (stores "" verbatim)
+Ini.tryFind "" ini          // None
+Ini.containsKey "" ini      // false
+Ini.remove "" ini           // unchanged
+```
 
 ## License
 
