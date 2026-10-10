@@ -543,7 +543,7 @@ public class IniTests
     [Fact]
     public void OfSeqBuildsAnIniFromPairs()
     {
-        var result = Ini.OfSeq([KeyValuePair.Create("beta:y", "2"), KeyValuePair.Create("alpha:x", "1")]);
+        var result = Ini.Create([KeyValuePair.Create("beta:y", "2"), KeyValuePair.Create("alpha:x", "1")]);
 
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : null);
         Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
@@ -553,7 +553,7 @@ public class IniTests
     [Fact]
     public void OfSeqRejectsAnInvalidKey()
     {
-        var result = Ini.OfSeq([KeyValuePair.Create("alpha:x", "1"), KeyValuePair.Create("a b", "2")]);
+        var result = Ini.Create([KeyValuePair.Create("alpha:x", "1"), KeyValuePair.Create("a b", "2")]);
 
         Assert.True(result.IsError);
         Assert.Equal("Invalid key: a b.", result.ErrorValue);
@@ -562,19 +562,19 @@ public class IniTests
     [Fact]
     public void OfSeqRejectsNullPairs()
     {
-        Assert.Throws<ArgumentNullException>(() => Ini.OfSeq(null!));
+        Assert.Throws<ArgumentNullException>(() => Ini.Create(null!));
     }
 
     [Fact]
     public void OfSeqRejectsAPairWithANullKey()
     {
-        Assert.Throws<ArgumentNullException>(() => Ini.OfSeq([KeyValuePair.Create((string)null!, "1")]));
+        Assert.Throws<ArgumentNullException>(() => Ini.Create([KeyValuePair.Create((string)null!, "1")]));
     }
 
     [Fact]
     public void OfSeqRejectsAPairWithANullValue()
     {
-        Assert.Throws<ArgumentNullException>(() => Ini.OfSeq([KeyValuePair.Create("x", (string)null!)]));
+        Assert.Throws<ArgumentNullException>(() => Ini.Create([KeyValuePair.Create("x", (string)null!)]));
     }
 
     [Fact]
@@ -582,7 +582,7 @@ public class IniTests
     {
         var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
 
-        var result = Ini.OfSeq(ini.KeyValuePairs);
+        var result = Ini.Create(ini.KeyValuePairs);
 
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : null);
         Assert.Equal(ini, result.ResultValue);
@@ -593,7 +593,7 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
 
-        var result = Ini.OfSeq(ini);
+        var result = Ini.Create(ini);
 
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : null);
         Assert.Equal(ini, result.ResultValue);

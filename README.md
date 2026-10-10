@@ -15,6 +15,8 @@ and two documents can be compared with `=`. Parsing and key validation report fa
 dotnet add package Fini --prerelease
 ```
 
+The package targets `net10.0`.
+
 ## Quick start
 
 F#:
@@ -31,10 +33,10 @@ let ini =
     | Ok ini -> ini
     | Error err -> failwith err
 
-let host = ini |> Ini.tryFind "server:host"             // Some "localhost"
+let host = ini |> Ini.tryFind "server:host"                 // Some "localhost"
 let inherited = ini |> Ini.tryFindNested "server.dev:host"  // Some "localhost"
-let port = ini |> Ini.find "server.dev:port"            // "5000"
-let timeout = ini |> Ini.find "timeout"                 // "30"
+let port = ini |> Ini.find "server.dev:port"                // "5000"
+let timeout = ini |> Ini.find "timeout"                     // "30"
 
 // Ok of a new document; `ini` still has its three entries
 let updated = ini |> Ini.add "server:port" "8080"
@@ -150,7 +152,8 @@ which keeps the invariant that anything `toLines` writes, `fromLines` can read b
 
 Two `Ini` values are equal when they hold the same keys and the same values. Section and parameter name
 case, declaration order, comments and blank lines are not taken into account; values and their case are.
-Equal documents have equal hash codes.
+Equal documents have equal hash codes, and documents are ordered too — `compare` and `List.sort` order them
+by keys and then values, in agreement with equality.
 
 ## Nested sections
 
@@ -240,7 +243,7 @@ The `Ini` is always the last parameter of the F# functions, so they compose with
 | `Ini.empty` | `Ini.Empty` | the empty document |
 | `Ini.fromLines : string seq -> Result<Ini, string>` | `Ini.FromLines` | parse lines |
 | `Ini.fromFile : string -> Result<Ini, string>` | `Ini.FromFile` | parse a file |
-| `Ini.ofSeq : KeyValuePair<string, string> seq -> Result<Ini, string>` | `Ini.OfSeq` | build from pairs |
+| `Ini.ofSeq : (string * string) seq -> Result<Ini, string>` | `Ini.Create` | build from pairs |
 | `Ini.appendLines : string seq -> Ini -> Result<Ini, string>` | `AppendLines` | layer lines over a document |
 | `Ini.appendFile : string -> Ini -> Result<Ini, string>` | `AppendFile` | layer a file over a document |
 | `Ini.add : string -> string -> Ini -> Result<Ini, string>` | `Add` | add or overwrite one key |
@@ -254,7 +257,7 @@ The `Ini` is always the last parameter of the F# functions, so they compose with
 | `Ini.count : Ini -> int` | `Count` | number of parameters |
 | `Ini.keys : Ini -> string seq` | `Keys` | keys in key order |
 | `Ini.values : Ini -> string seq` | `Values` | values, aligned with `keys` |
-| `Ini.toSeq : Ini -> KeyValuePair<string, string> seq` | `KeyValuePairs` | pairs in key order |
+| `Ini.toSeq : Ini -> (string * string) seq` | `KeyValuePairs` | pairs in key order |
 | `Ini.sections : Ini -> string seq` | `Sections` | distinct section names, `""` for the root |
 | `Ini.section : string -> Ini -> Ini` | `Section` | one section as a standalone document |
 | `Ini.toLines : Ini -> string seq` | `ToLines()` | render |
@@ -262,7 +265,10 @@ The `Ini` is always the last parameter of the F# functions, so they compose with
 | `Ini.toFile : string -> Ini -> unit` | `ToFile` | render to a file |
 
 `Ini` implements `IEnumerable<KeyValuePair<string, string>>`, so C# can `foreach` and LINQ over it
-directly, and `Ini.OfSeq(ini)` round-trips a document.
+directly, and `Ini.Create(ini)` round-trips a document.
+
+Pairs come in the shape the factory takes: `KeyValuePair` in C#, matching `KeyValuePairs`, and tuples in
+F#, so `ini |> Ini.toSeq |> Ini.ofSeq` round-trips as well.
 
 `Section` matches the name case-insensitively, excludes dotted children, keeps the keys as they are in the
 original document, and renders back to a valid standalone document:

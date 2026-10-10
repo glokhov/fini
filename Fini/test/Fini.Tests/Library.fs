@@ -874,11 +874,7 @@ let ``enumeration terminates on a repeated pass`` () =
 
 // ---------------------------------------------------------------- toSeq
 
-let private kv (key, value) = KeyValuePair<string, string>(key, value)
-
-let private kvs pairs = pairs |> List.map kv
-
-let private tuples (pairs: KeyValuePair<string, string> seq) = [ for pair in pairs -> pair.Key, pair.Value ]
+let private tuples (pairs: (string * string) seq) = [ for pair in pairs -> fst pair, snd pair ]
 
 [<Fact>]
 let ``toSeq yields pairs in key order`` () =
@@ -888,7 +884,7 @@ let ``toSeq yields pairs in key order`` () =
 [<Fact>]
 let ``toSeq yields the same shape ofSeq takes`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<KeyValuePair<string, string> list>(kvs [ "alpha:x", "1" ], Ini.toSeq ini |> List.ofSeq)
+    Assert.Equal<(string * string) list>([ "alpha:x", "1" ], Ini.toSeq ini |> tuples)
 
 [<Fact>]
 let ``toSeq agrees with keys and values`` () =
@@ -924,42 +920,42 @@ let private ofSeqError pairs =
 
 [<Fact>]
 let ``ofSeq builds an ini from pairs`` () =
-    let ini = ofSeq (kvs [ "alpha:x", "1"; "beta:y", "2" ])
+    let ini = ofSeq [ "alpha:x", "1"; "beta:y", "2" ]
     Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys ini)
     Assert.Equal<string list>([ "1"; "2" ], values ini)
 
 [<Fact>]
-let ``ofSeq of no pairs is empty`` () = Assert.Equal<Ini>(Ini.empty, ofSeq (kvs []))
+let ``ofSeq of no pairs is empty`` () = Assert.Equal<Ini>(Ini.empty, ofSeq [])
 
 [<Fact>]
 let ``ofSeq normalises a key without a separator to the root section`` () =
-    Assert.Equal<string list>([ ":x" ], keys (ofSeq (kvs [ "x", "1" ])))
-    Assert.Equal<Ini>(ofSeq (kvs [ ":x", "1" ]), ofSeq (kvs [ "x", "1" ]))
+    Assert.Equal<string list>([ ":x" ], keys (ofSeq [ "x", "1" ]))
+    Assert.Equal<Ini>(ofSeq [ ":x", "1" ], ofSeq [ "x", "1" ])
 
 [<Fact>]
 let ``ofSeq orders pairs by key, not by position`` () =
-    let ini = ofSeq (kvs [ "beta:y", "2"; "root", "0"; "alpha:x", "1" ])
+    let ini = ofSeq [ "beta:y", "2"; "root", "0"; "alpha:x", "1" ]
     Assert.Equal<string list>([ ":root"; "alpha:x"; "beta:y" ], keys ini)
 
 [<Fact>]
 let ``ofSeq lets a later pair overwrite an earlier one`` () =
-    let ini = ofSeq (kvs [ "alpha:x", "1"; "ALPHA:X", "2" ])
+    let ini = ofSeq [ "alpha:x", "1"; "ALPHA:X", "2" ]
     Assert.Equal(1, Ini.count ini)
     Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
 
 [<Fact>]
 let ``ofSeq stores values verbatim`` () =
-    Assert.Equal<string option>(Some " a ; b # c = d ", ofSeq (kvs [ "x", " a ; b # c = d " ]) |> Ini.tryFind "x")
-    Assert.Equal<string option>(Some "", ofSeq (kvs [ "x", "" ]) |> Ini.tryFind "x")
+    Assert.Equal<string option>(Some " a ; b # c = d ", ofSeq [ "x", " a ; b # c = d " ] |> Ini.tryFind "x")
+    Assert.Equal<string option>(Some "", ofSeq [ "x", "" ] |> Ini.tryFind "x")
 
 [<Fact>]
 let ``ofSeq equals parsing the same document`` () =
-    Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], ofSeq (kvs [ "root", "0"; "alpha:x", "1" ]))
+    Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], ofSeq [ "root", "0"; "alpha:x", "1" ])
 
 [<Fact>]
 let ``ofSeq equals adding the same pairs one by one`` () =
     let added = Ini.empty |> added "alpha:x" "1" |> added "beta:y" "2"
-    Assert.Equal<Ini>(added, ofSeq (kvs [ "alpha:x", "1"; "beta:y", "2" ]))
+    Assert.Equal<Ini>(added, ofSeq [ "alpha:x", "1"; "beta:y", "2" ])
 
 [<Theory>]
 [<InlineData("")>]
@@ -973,11 +969,11 @@ let ``ofSeq equals adding the same pairs one by one`` () =
 [<InlineData(" alpha:x")>]
 [<InlineData("alpha:x ")>]
 let ``ofSeq rejects a key the parser could not read back`` key =
-    Assert.Equal($"Invalid key: %s{key}.", ofSeqError (kvs [ key, "1" ]))
+    Assert.Equal($"Invalid key: %s{key}.", ofSeqError [ key, "1" ])
 
 [<Fact>]
 let ``ofSeq reports the first invalid key`` () =
-    Assert.Equal("Invalid key: a b.", ofSeqError (kvs [ "x", "1"; "a b", "2"; "c d", "3" ]))
+    Assert.Equal("Invalid key: a b.", ofSeqError [ "x", "1"; "a b", "2"; "c d", "3" ])
 
 [<Fact>]
 let ``ofSeq stops at the first invalid key`` () =
@@ -987,7 +983,7 @@ let ``ofSeq stops at the first invalid key`` () =
         seq {
             for i in 1..10000 do
                 consumed.Value <- consumed.Value + 1
-                if i = 3 then yield kv ("a b", "oops") else yield kv ($"x{i}", $"{i}")
+                if i = 3 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
         }
 
     Assert.Equal("Invalid key: a b.", ofSeqError input)
@@ -1000,9 +996,9 @@ let ``ofSeq disposes the enumerator when it stops early`` () =
     let input =
         seq {
             try
-                yield kv ("ok", "1")
-                yield kv ("a b", "2")
-                yield kv ("never", "reached")
+                yield ("ok", "1")
+                yield ("a b", "2")
+                yield ("never", "reached")
             finally
                 disposed.Value <- true
         }
@@ -1018,7 +1014,7 @@ let ``ofSeq terminates on an infinite sequence containing an invalid key`` () =
 
             while true do
                 i <- i + 1
-                if i = 5 then yield kv ("a b", "oops") else yield kv ($"x{i}", $"{i}")
+                if i = 5 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
         }
 
     Assert.Equal("Invalid key: a b.", ofSeqError input)
@@ -1029,11 +1025,11 @@ let ``ofSeq rejects null pairs`` () =
 
 [<Fact>]
 let ``ofSeq rejects a pair with a null key`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ kv (null, "1") ] |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ (null, "1") ] |> ignore) |> ignore
 
 [<Fact>]
 let ``ofSeq rejects a pair with a null value`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ kv ("x", null) ] |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ ("x", null) ] |> ignore) |> ignore
 
 [<Fact>]
 let ``toSeq and ofSeq round trip`` () =
@@ -1259,7 +1255,7 @@ let ``rendering an ini and parsing it back yields an equal ini`` () =
 
 [<Fact>]
 let ``rendering an ini built in code yields an equal ini`` () =
-    let ini = ofSeq (kvs [ "alpha:x", "1"; "alpha.beta:y", "2"; "z", "3"; "0:a", "4" ])
+    let ini = ofSeq [ "alpha:x", "1"; "alpha.beta:y", "2"; "z", "3"; "0:a", "4" ]
 
     Assert.Equal<Ini>(ini, create (Ini.toLines ini))
 

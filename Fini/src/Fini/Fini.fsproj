@@ -26,6 +26,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="Library.fsi" />
         <Compile Include="Library.fs" />
     </ItemGroup>
 
