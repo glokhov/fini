@@ -11,7 +11,7 @@ open Xunit
 let private create lines =
     match Ini.fromLines lines with
     | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %s{err}"
+    | Error err -> failwith $"expected Ok, got Error: %A{err}"
 
 let private error lines =
     match Ini.fromLines lines with
@@ -158,8 +158,7 @@ let ``whitespace around a section header line is ignored`` () =
 [<InlineData("[name nested]")>]
 [<InlineData("na\tme = 1")>]
 [<InlineData("na me = 1")>]
-let ``whitespace inside a name is rejected`` line =
-    Assert.Equal($"Cannot parse line: %s{line}.", error [ line ])
+let ``whitespace inside a name is rejected`` line = Assert.Equal<ParserError>(InvalidLine line, error [ line ])
 
 [<Fact>]
 let ``tabs are trimmed from a value but kept inside it`` () =
@@ -202,12 +201,12 @@ let ``a section may be reopened later in the file`` () =
 [<InlineData("[alpha] trailing")>]
 let ``an unparsable line is an error`` line =
     let err = error [ line ]
-    Assert.Equal($"Cannot parse line: %s{line}.", err)
+    Assert.Equal<ParserError>(InvalidLine line, err)
 
 [<Fact>]
 let ``the first unparsable line determines the error`` () =
     let err = error [ "x = 1"; "oops"; "also bad" ]
-    Assert.Equal("Cannot parse line: oops.", err)
+    Assert.Equal<ParserError>(InvalidLine "oops", err)
 
 // ---------------------------------------------------------------- lazy input
 
@@ -222,7 +221,7 @@ let ``parsing stops at the first unparsable line`` () =
                 if i = 3 then yield "not a valid line" else yield $"x{i} = {i}"
         }
 
-    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+    Assert.Equal<ParserError>(InvalidLine "not a valid line", error lines)
     Assert.Equal(3, consumed.Value)
 
 [<Fact>]
@@ -255,7 +254,7 @@ let ``the enumerator is disposed when parsing stops early`` () =
                 disposed.Value <- true
         }
 
-    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+    Assert.Equal<ParserError>(InvalidLine "not a valid line", error lines)
     Assert.True(disposed.Value, "the enumerator was not disposed")
     Assert.False(pulledPastError.Value, "enumeration continued past the error")
 
@@ -270,7 +269,7 @@ let ``an infinite sequence containing an unparsable line terminates`` () =
                 if i = 5 then yield "not a valid line" else yield $"x{i} = {i}"
         }
 
-    Assert.Equal("Cannot parse line: not a valid line.", error lines)
+    Assert.Equal<ParserError>(InvalidLine "not a valid line", error lines)
 
 // ---------------------------------------------------------------- the colon is reserved
 
@@ -280,7 +279,7 @@ let ``an infinite sequence containing an unparsable line terminates`` () =
 [<InlineData("[alpha:]")>]
 let ``a section name cannot contain a colon`` line =
     let err = error [ line ]
-    Assert.Equal($"Cannot parse line: %s{line}.", err)
+    Assert.Equal<ParserError>(InvalidLine line, err)
 
 [<Theory>]
 [<InlineData("beta:x = 1")>]
@@ -288,12 +287,12 @@ let ``a section name cannot contain a colon`` line =
 [<InlineData("x: = 1")>]
 let ``a parameter name cannot contain a colon`` line =
     let err = error [ line ]
-    Assert.Equal($"Cannot parse line: %s{line}.", err)
+    Assert.Equal<ParserError>(InvalidLine line, err)
 
 [<Fact>]
 let ``a section name and a parameter name cannot be confused`` () =
-    Assert.Equal("Cannot parse line: [alpha:beta].", error [ "[alpha:beta]"; "x = 1" ])
-    Assert.Equal("Cannot parse line: beta:x = 1.", error [ "[alpha]"; "beta:x = 1" ])
+    Assert.Equal<ParserError>(InvalidLine "[alpha:beta]", error [ "[alpha:beta]"; "x = 1" ])
+    Assert.Equal<ParserError>(InvalidLine "beta:x = 1", error [ "[alpha]"; "beta:x = 1" ])
 
 [<Fact>]
 let ``every key holds exactly one colon and splits unambiguously`` () =
@@ -444,7 +443,7 @@ let ``appendLines adds entries to an existing ini`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
 
     match Ini.appendLines [ "[beta]"; "y = 2" ] ini with
-    | Error err -> failwith err
+    | Error err -> failwith $"%A{err}"
     | Ok appended -> Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys appended)
 
 [<Fact>]
@@ -452,7 +451,7 @@ let ``appendLines overwrites existing keys`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
 
     match Ini.appendLines [ "[alpha]"; "x = 2" ] ini with
-    | Error err -> failwith err
+    | Error err -> failwith $"%A{err}"
     | Ok appended ->
         Assert.Equal(1, Ini.count appended)
         Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" appended)
@@ -462,7 +461,7 @@ let ``appendLines leaves the original ini unchanged`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
 
     match Ini.appendLines [ "[alpha]"; "x = 2" ] ini with
-    | Error err -> failwith err
+    | Error err -> failwith $"%A{err}"
     | Ok _ -> Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
 
 [<Fact>]
@@ -470,7 +469,7 @@ let ``appendLines starts at the root section`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
 
     match Ini.appendLines [ "y = 2" ] ini with
-    | Error err -> failwith err
+    | Error err -> failwith $"%A{err}"
     | Ok appended -> Assert.Equal<string list>([ ":y"; "alpha:x" ], keys appended)
 
 [<Fact>]
@@ -501,14 +500,14 @@ let ``appendLines reports an unparsable line`` () =
 
     match Ini.appendLines [ "oops" ] ini with
     | Ok _ -> failwith "expected Error, got Ok"
-    | Error err -> Assert.Equal("Cannot parse line: oops.", err)
+    | Error err -> Assert.Equal<ParserError>(InvalidLine "oops", err)
 
 // ---------------------------------------------------------------- add
 
 let private added key value ini =
     match Ini.add key value ini with
     | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %s{err}"
+    | Error err -> failwith $"expected Ok, got Error: %A{err}"
 
 let private addError key value ini =
     match Ini.add key value ini with
@@ -579,7 +578,7 @@ let ``add accepts a blank value`` value =
 [<InlineData(" alpha:x")>]
 [<InlineData("alpha:x ")>]
 let ``add rejects a key the parser could not read back`` key =
-    Assert.Equal($"Invalid key: %s{key}.", addError key "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
 
 [<Theory>]
 [<InlineData("")>]
@@ -587,11 +586,11 @@ let ``add rejects a key the parser could not read back`` key =
 [<InlineData("   ")>]
 [<InlineData("\t")>]
 let ``add rejects a blank key`` key =
-    Assert.Equal($"Invalid key: %s{key}.", addError key "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
 
 [<Fact>]
 let ``a key is not trimmed so add and tryFind always agree`` () =
-    Assert.Equal("Invalid key:  x .", addError " x " "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey " x ", addError " x " "1" Ini.empty)
 
     for key in [ "x"; ":x"; "alpha:x"; "alpha.beta:x" ] do
         Assert.Equal<string option>(Some "1", added key "1" Ini.empty |> Ini.tryFind key)
@@ -743,7 +742,7 @@ let ``lookups do not guard a blank key`` key =
 [<InlineData("   ")>]
 [<InlineData("\t")>]
 let ``mutations reject a blank key`` key =
-    Assert.Equal($"Invalid key: %s{key}.", addError key "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
     let ini = create [ "x = 1" ]
     Assert.Equal<Ini>(ini, ini |> Ini.remove key)
 
@@ -831,6 +830,70 @@ let ``section renders back to a valid standalone document`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
     Assert.Equal<string list>([ "[alpha]"; "x = 1" ], Ini.section "alpha" ini |> Ini.toLines |> List.ofSeq)
 
+[<Fact>]
+let ``removeSection removes every parameter of that section`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "y = 2"; "[beta]"; "z = 3" ]
+    let rest = Ini.removeSection "alpha" ini
+    Assert.Equal<string list>([ ":root"; "beta:z" ], Ini.keys rest |> List.ofSeq)
+
+[<Fact>]
+let ``removeSection matches the name case insensitively`` () =
+    let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
+    Assert.Equal<Ini>(Ini.removeSection "alpha" ini, Ini.removeSection "ALPHA" ini)
+
+[<Fact>]
+let ``removeSection removes every differently cased reopening`` () =
+    let ini = create [ "[alpha]"; "x = 1"; "[ALPHA]"; "y = 2"; "[beta]"; "z = 3" ]
+    Assert.Equal<string list>([ "beta:z" ], Ini.removeSection "alpha" ini |> Ini.keys |> List.ofSeq)
+
+[<Fact>]
+let ``removeSection keeps a dotted child section`` () =
+    let ini = create [ "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
+    Assert.Equal<string list>([ "alpha.beta:y" ], Ini.removeSection "alpha" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<string list>([ "alpha:x" ], Ini.removeSection "alpha.beta" ini |> Ini.keys |> List.ofSeq)
+
+[<Fact>]
+let ``removeSection removes the root section for an empty name`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
+    Assert.Equal<string list>([ "alpha:x" ], Ini.removeSection "" ini |> Ini.keys |> List.ofSeq)
+
+[<Fact>]
+let ``removeSection is a no-op for a name with no parameters`` () =
+    let ini = create [ "[alpha]"; "x = 1" ]
+    Assert.Equal<Ini>(ini, Ini.removeSection "nope" ini)
+
+[<Fact>]
+let ``removeSection of an empty ini is empty`` () =
+    Assert.Equal<Ini>(Ini.empty, Ini.removeSection "alpha" Ini.empty)
+
+[<Fact>]
+let ``removeSection does not guard a null name and simply matches nothing`` () =
+    let ini = create [ "[alpha]"; "x = 1" ]
+    Assert.Equal<Ini>(ini, Ini.removeSection null ini)
+
+[<Fact>]
+let ``removeSection leaves the original untouched`` () =
+    let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
+    Ini.removeSection "alpha" ini |> ignore
+    Assert.Equal<string list>([ "alpha:x"; "beta:y" ], Ini.keys ini |> List.ofSeq)
+
+[<Fact>]
+let ``section and removeSection partition the document`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
+
+    for name in [ ""; "alpha"; "alpha.beta"; "nope" ] do
+        let taken = Ini.section name ini
+        let rest = Ini.removeSection name ini
+        Assert.Equal(Ini.count ini, Ini.count taken + Ini.count rest)
+        Assert.Empty(Set.intersect (Ini.keys taken |> Set.ofSeq) (Ini.keys rest |> Set.ofSeq))
+
+        Assert.Equal<Set<string>>(Ini.keys ini |> Set.ofSeq, Set.union (Ini.keys taken |> Set.ofSeq) (Ini.keys rest |> Set.ofSeq))
+
+[<Fact>]
+let ``removeSection renders back to a valid document`` () =
+    let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
+    Assert.Equal<string list>([ "[beta]"; "y = 2" ], Ini.removeSection "alpha" ini |> Ini.toLines |> List.ofSeq)
+
 
 // ---------------------------------------------------------------- enumeration
 
@@ -911,7 +974,7 @@ let ``toSeq yields the stored key including the root separator`` () =
 let private ofSeq pairs =
     match Ini.ofSeq pairs with
     | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %s{err}"
+    | Error err -> failwith $"expected Ok, got Error: %A{err}"
 
 let private ofSeqError pairs =
     match Ini.ofSeq pairs with
@@ -969,11 +1032,11 @@ let ``ofSeq equals adding the same pairs one by one`` () =
 [<InlineData(" alpha:x")>]
 [<InlineData("alpha:x ")>]
 let ``ofSeq rejects a key the parser could not read back`` key =
-    Assert.Equal($"Invalid key: %s{key}.", ofSeqError [ key, "1" ])
+    Assert.Equal<ParserError>(InvalidKey key, ofSeqError [ key, "1" ])
 
 [<Fact>]
 let ``ofSeq reports the first invalid key`` () =
-    Assert.Equal("Invalid key: a b.", ofSeqError [ "x", "1"; "a b", "2"; "c d", "3" ])
+    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError [ "x", "1"; "a b", "2"; "c d", "3" ])
 
 [<Fact>]
 let ``ofSeq stops at the first invalid key`` () =
@@ -986,7 +1049,7 @@ let ``ofSeq stops at the first invalid key`` () =
                 if i = 3 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
         }
 
-    Assert.Equal("Invalid key: a b.", ofSeqError input)
+    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
     Assert.Equal(3, consumed.Value)
 
 [<Fact>]
@@ -1003,7 +1066,7 @@ let ``ofSeq disposes the enumerator when it stops early`` () =
                 disposed.Value <- true
         }
 
-    Assert.Equal("Invalid key: a b.", ofSeqError input)
+    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
     Assert.True(disposed.Value, "the enumerator was not disposed")
 
 [<Fact(Timeout = 10000)>]
@@ -1017,7 +1080,7 @@ let ``ofSeq terminates on an infinite sequence containing an invalid key`` () =
                 if i = 5 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
         }
 
-    Assert.Equal("Invalid key: a b.", ofSeqError input)
+    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
 
 [<Fact>]
 let ``ofSeq rejects null pairs`` () =
@@ -1058,7 +1121,7 @@ let private missingPath () = tempPath "missing-"
 let ``fromFile parses the file`` () =
     withTempFile [ "; comment"; ""; "root = 0"; "[alpha]"; "x = 1" ] (fun path ->
         match Ini.fromFile path with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok ini ->
             Assert.Equal<string list>([ ":root"; "alpha:x" ], keys ini)
             Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], ini))
@@ -1067,7 +1130,7 @@ let ``fromFile parses the file`` () =
 let ``fromFile of an empty file is an empty ini`` () =
     withTempFile [] (fun path ->
         match Ini.fromFile path with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok ini -> Assert.Equal<Ini>(Ini.empty, ini))
 
 [<Fact>]
@@ -1075,7 +1138,7 @@ let ``fromFile reports an unparsable line`` () =
     withTempFile [ "x = 1"; "oops" ] (fun path ->
         match Ini.fromFile path with
         | Ok _ -> failwith "expected Error, got Ok"
-        | Error err -> Assert.Equal("Cannot parse line: oops.", err))
+        | Error err -> Assert.Equal<ParserError>(InvalidLine "oops", err))
 
 [<Fact>]
 let ``fromFile raises for a missing file`` () =
@@ -1115,7 +1178,7 @@ let ``appendFile merges the file over an existing ini`` () =
         let ini = create [ "[alpha]"; "x = 1" ]
 
         match Ini.appendFile path ini with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok appended ->
             Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys appended)
             Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" appended)
@@ -1127,7 +1190,7 @@ let ``appendFile starts at the root section`` () =
         let ini = create [ "[alpha]"; "x = 1" ]
 
         match Ini.appendFile path ini with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok appended -> Assert.Equal<string list>([ ":y"; "alpha:x" ], keys appended))
 
 [<Fact>]
@@ -1135,7 +1198,7 @@ let ``appendFile reports an unparsable line`` () =
     withTempFile [ "oops" ] (fun path ->
         match Ini.appendFile path (create [ "x = 1" ]) with
         | Ok _ -> failwith "expected Error, got Ok"
-        | Error err -> Assert.Equal("Cannot parse line: oops.", err))
+        | Error err -> Assert.Equal<ParserError>(InvalidLine "oops", err))
 
 [<Fact>]
 let ``appendFile raises for a missing file`` () =
@@ -1152,7 +1215,7 @@ let ``fromFile equals fromLines on the same content`` () =
 
     withTempFile lines (fun path ->
         match Ini.fromFile path with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok ini -> Assert.Equal<Ini>(create lines, ini))
 
 // ---------------------------------------------------------------- rendering
@@ -1279,7 +1342,7 @@ let ``a value containing a newline renders as something the parser rejects`` () 
     let ini = added "x" "a\nb" Ini.empty
 
     Assert.Equal<string list>([ "x = a\nb" ], lines ini)
-    Assert.Equal("Cannot parse line: b.", error (Ini.toLines ini |> Seq.collect (fun line -> line.Split '\n')))
+    Assert.Equal<ParserError>(InvalidLine "b", error (Ini.toLines ini |> Seq.collect (fun line -> line.Split '\n')))
 
 // ---------------------------------------------------------------- toFile
 
@@ -1294,7 +1357,7 @@ let ``toFile writes a file that fromFile reads back`` () =
         Assert.Equal<string list>(lines ini, File.ReadLines path |> List.ofSeq)
 
         match Ini.fromFile path with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok reread -> Assert.Equal<Ini>(ini, reread)
     finally
         if File.Exists path then
@@ -1323,7 +1386,7 @@ let ``toFile writes an empty ini as an empty file`` () =
         Assert.Empty(File.ReadLines path)
 
         match Ini.fromFile path with
-        | Error err -> failwith err
+        | Error err -> failwith $"%A{err}"
         | Ok reread -> Assert.True(Ini.isEmpty reread)
     finally
         if File.Exists path then
@@ -1340,3 +1403,66 @@ let ``toFile raises for an unwritable path`` () =
 [<Fact>]
 let ``toFile rejects a null path`` () =
     Assert.Throws<ArgumentNullException>(fun () -> Ini.toFile null Ini.empty) |> ignore
+
+// ---------------------------------------------------------------- parser errors
+
+[<Fact>]
+let ``an unparsable line is reported as InvalidLine`` () =
+    Assert.Equal<ParserError>(InvalidLine "oops", error [ "oops" ])
+
+[<Fact>]
+let ``InvalidLine carries the line verbatim`` () =
+    Assert.Equal<ParserError>(InvalidLine "  oops  ", error [ "  oops  " ])
+
+[<Fact>]
+let ``an invalid key is reported as InvalidKey`` () =
+    Assert.Equal<ParserError>(InvalidKey "a b", addError "a b" "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError [ "a b", "1" ])
+
+[<Fact>]
+let ``InvalidKey carries the key verbatim`` () =
+    Assert.Equal<ParserError>(InvalidKey " x ", addError " x " "1" Ini.empty)
+    Assert.Equal<ParserError>(InvalidKey "", addError "" "1" Ini.empty)
+
+[<Fact>]
+let ``lines are reported as InvalidLine and keys as InvalidKey`` () =
+    let path = tempPath "err-"
+
+    try
+        File.WriteAllLines(path, [ "oops" ])
+
+        match Ini.fromLines [ "oops" ], Ini.fromFile path, Ini.appendLines [ "oops" ] Ini.empty, Ini.appendFile path Ini.empty with
+        | Error a, Error b, Error c, Error d ->
+            Assert.Equal<ParserError list>(
+                [ InvalidLine "oops"; InvalidLine "oops"; InvalidLine "oops"; InvalidLine "oops" ],
+                [ a; b; c; d ]
+            )
+        | _ -> failwith "expected Error, got Ok"
+
+        match Ini.add "a b" "1" Ini.empty, Ini.ofSeq [ "a b", "1" ] with
+        | Error a, Error b -> Assert.Equal<ParserError list>([ InvalidKey "a b"; InvalidKey "a b" ], [ a; b ])
+        | _ -> failwith "expected Error, got Ok"
+    finally
+        if File.Exists path then
+            File.Delete path
+
+[<Fact>]
+let ``the two cases are distinct for the same text`` () =
+    Assert.NotEqual<ParserError>(InvalidKey "oops", InvalidLine "oops")
+
+[<Fact>]
+let ``parser errors are structurally equal`` () =
+    Assert.Equal<ParserError>(InvalidLine "oops", InvalidLine "oops")
+    Assert.Equal((InvalidLine "oops").GetHashCode(), (InvalidLine "oops").GetHashCode())
+    Assert.NotEqual<ParserError>(InvalidLine "oops", InvalidLine "other")
+
+[<Fact>]
+let ``a parser error can be matched on its case`` () =
+    match error [ "oops" ] with
+    | InvalidLine line -> Assert.Equal("oops", line)
+    | InvalidKey key -> failwith $"expected InvalidLine, got InvalidKey %s{key}"
+
+[<Fact>]
+let ``a parser error names its case and its text`` () =
+    Assert.Equal("InvalidLine \"oops\"", string (InvalidLine "oops"))
+    Assert.Equal("InvalidKey \"a b\"", string (InvalidKey "a b"))

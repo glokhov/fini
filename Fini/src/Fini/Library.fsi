@@ -5,23 +5,63 @@ open System.Collections
 open System.Collections.Generic
 
 /// <summary>
-/// An immutable INI document: a flattened map from <c>section:parameter</c> keys to values.
+/// The reason a document could not be built: a line the parser cannot read, or a key it rejects.
+/// Each case carries the offending text verbatim — untrimmed, unquoted, with no position and no prose
+/// around it.
 /// </summary>
-///
+/// <remarks>
+/// Two errors are equal when they hold the same case and the same text, and <c>ToString</c> names both,
+/// as in <c>InvalidKey "a b"</c>. From C# the cases are nested types that carry their payload under the
+/// field name — <c>Key</c> and <c>Line</c> — with <c>IsInvalidKey</c> / <c>IsInvalidLine</c> to test one
+/// and <c>NewInvalidKey</c> / <c>NewInvalidLine</c> to build one.
+/// </remarks>
+type ParserError =
+    /// <summary>
+    /// A key that is not of the form <c>section:parameter</c>. Reported by <c>Add</c> and <c>Create</c> /
+    /// <c>Ini.add</c> and <c>Ini.ofSeq</c>, which is what keeps the invariant that anything
+    /// <c>ToLines</c> writes can be read back.
+    /// </summary>
+    /// <remarks>
+    /// Both halves must avoid whitespace and the characters <c>= : ; # [ ]</c>, and the parameter half
+    /// must be non-empty; the section half may be empty, meaning the root section. So <c>a b</c>,
+    /// <c>alpha:</c> and <c>alpha:beta:x</c> are all invalid keys.
+    /// </remarks>
+    | InvalidKey of Key: string
+
+    /// <summary>
+    /// A line that is neither a section header, a parameter, a comment nor whitespace. Reported by
+    /// <c>FromLines</c>, <c>FromFile</c>, <c>AppendLines</c> and <c>AppendFile</c> / <c>Ini.fromLines</c>,
+    /// <c>Ini.fromFile</c>, <c>Ini.appendLines</c> and <c>Ini.appendFile</c>.
+    /// </summary>
+    | InvalidLine of Line: string
+
+/// <summary>
+/// An immutable INI document: a set of parameters, each keyed <c>section:parameter</c>.
+/// </summary>
 /// <remarks>
 /// <para>
-/// Every operation that changes a document returns a new one; the original is never modified. A key with
-/// no colon refers to the root section, so <c>x</c> and <c>:x</c> are the same key. Both halves of a key
-/// are compared with <see cref="P:System.StringComparer.OrdinalIgnoreCase"/>; values are kept and compared
-/// as written.
+/// An <c>Ini</c> is a value. Every operation that would change a document returns a new one and leaves the
+/// original untouched, and two documents are equal when they hold the same keys and the same values —
+/// name case, declaration order, comments and blank lines are not taken into account, values and their
+/// case are. Equal documents have equal hash codes, and documents are ordered too, by keys and then
+/// values, in agreement with equality.
 /// </para>
 /// <para>
-/// Keys and values enumerate in key order: the root section first, then sections ordinal-ignore-case with
-/// a parent ahead of its dotted children, then parameters within a section.
+/// The model is flat: there is no nested object to walk, so lookup, enumeration and rendering all work on
+/// the same sequence of pairs, in key order — the root section first, then sections
+/// <c>OrdinalIgnoreCase</c> with a parent ahead of its children, then parameters within a section.
 /// </para>
 /// <para>
-/// Two documents are equal when they hold the same keys and the same values. Section and parameter name
-/// case, declaration order, comments and blank lines are not taken into account.
+/// Keys are compared case-insensitively (<c>OrdinalIgnoreCase</c>) in both halves; a key with no colon
+/// refers to the root section, so <c>x</c> and <c>:x</c> are the same key. Keys are never trimmed or
+/// repaired, so a key the parser would reject is simply absent on the way out: <c>TryFind</c> gives
+/// <c>None</c>, <c>ContainsKey</c> gives <c>false</c>, <c>Remove</c> is a no-op and <c>Find</c> raises.
+/// </para>
+/// <para>
+/// Content failures — an unparsable line, an invalid key — are returned as
+/// <c>Error</c> of <c>Result&lt;Ini, ParserError&gt;</c>. A missing key is an answer rather than a failure:
+/// <c>TryFind</c> and <c>TryFindNested</c> return an option, <c>Find</c> and <c>FindNested</c> are their
+/// partial counterparts and raise. A <c>null</c> argument and a filesystem problem are raised.
 /// </para>
 /// </remarks>
 [<Sealed>]
@@ -29,222 +69,238 @@ type Ini =
     /// <summary>The empty document.</summary>
     static member Empty: Ini
 
-    /// <summary>Builds a document from a sequence of key-value pairs.</summary>
-    ///
-    /// <param name="pairs">The pairs to add, each keyed <c>section:parameter</c>. A later pair overwrites an
-    /// earlier one with the same key.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Invalid key: &lt;key&gt;."</c> for the first key the
-    /// parser would reject.</returns>
-    ///
+    /// <summary>Builds a document from key/value pairs.</summary>
+    /// <param name="pairs">
+    /// The pairs to add, each key of the form <c>section:parameter</c>. A later pair overwrites an earlier
+    /// one with the same key. Enumerated lazily, and only up to the first invalid key.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidKey</c> for the first key the parser
+    /// rejects.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="pairs"/>, or the key or the value of any pair in it, is null.
+    /// <paramref name="pairs"/>, or the key or the value of one of its pairs, is <c>null</c>.
     /// </exception>
-    static member Create: pairs: seq<KeyValuePair<string, string>> -> Result<Ini, string>
+    /// <remarks>
+    /// Takes the pair shape <c>KeyValuePairs</c> produces, so <c>Ini.Create(ini)</c> round-trips a
+    /// document.
+    /// </remarks>
+    static member Create: pairs: seq<KeyValuePair<string, string>> -> Result<Ini, ParserError>
 
-    /// <summary>Parses the lines of a file.</summary>
-    ///
+    /// <summary>Parses a file into a document.</summary>
     /// <param name="path">The path of the file to read.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>Reads lazily and stops at the first unparsable line, closing the file handle on the way
-    /// out.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be read; the exceptions of
-    /// <see cref="M:System.IO.File.ReadLines(System.String)"/> propagate unchanged.</exception>
-    static member FromFile: path: string -> Result<Ini, string>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser
+    /// cannot read.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be read.</exception>
+    /// <remarks>
+    /// A single lazy pass that stops at the first unparsable line — a 10,000-line file with a bad line at
+    /// position 3 reads three lines — and the file handle is closed on the way out.
+    /// </remarks>
+    static member FromFile: path: string -> Result<Ini, ParserError>
 
-    /// <summary>Parses a sequence of lines.</summary>
-    ///
-    /// <param name="lines">The lines to parse. Parameters before the first <c>[section]</c> header belong to
-    /// the root section; a later parameter overwrites an earlier one with the same key.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>Reads the sequence lazily and stops at the first unparsable line.</remarks>
-    ///
+    /// <summary>Parses lines into a document.</summary>
+    /// <param name="lines">
+    /// The lines to read: <c>[name]</c> opens a section, <c>name = value</c> is a parameter in the current
+    /// section, <c>; text</c> and <c># text</c> are comments, blank and whitespace lines are ignored, and
+    /// anything else is an error. Parameters before the first header belong to the root section.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser
+    /// cannot read.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="lines"/>, or any line in it, is null.
+    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    static member FromLines: lines: seq<string> -> Result<Ini, string>
+    /// <remarks>
+    /// A value is everything after the first <c>=</c>, with surrounding whitespace trimmed, so it may
+    /// contain <c>= : ; #</c> and may be empty. A later parameter overwrites an earlier one with the same
+    /// key, and a section may be reopened later on.
+    /// </remarks>
+    static member FromLines: lines: seq<string> -> Result<Ini, ParserError>
 
-    /// <summary>Layers the lines of a file over this document.</summary>
-    ///
+    /// <summary>Layers a file over this document.</summary>
     /// <param name="path">The path of the file to read.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>The file wins on a shared key; keys only present in this document survive. The file is
-    /// parsed from the root section, by exactly the rules <see cref="M:Fini.Ini.FromFile(System.String)"/>
-    /// uses.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be read; the exceptions of
-    /// <see cref="M:System.IO.File.ReadLines(System.String)"/> propagate unchanged.</exception>
-    member AppendFile: path: string -> Result<Ini, string>
+    /// <returns>
+    /// <c>Ok</c> of a new document in which the file's parameters win on a shared key and this document's
+    /// own parameters survive, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser cannot
+    /// read.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be read.</exception>
+    /// <remarks>
+    /// Parsing starts at the root section, by design: a layer's lines are read by exactly the rules
+    /// <c>FromLines</c> uses, so load order decides which value wins, never which key a line writes to.
+    /// </remarks>
+    member AppendFile: path: string -> Result<Ini, ParserError>
 
-    /// <summary>Layers a sequence of lines over this document.</summary>
-    ///
-    /// <param name="lines">The lines to parse.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>The appended lines win on a shared key; keys only present in this document survive. Parsing
-    /// starts at the root section, so a line's key depends on the appended lines alone and never on the
-    /// sections already present: appending <c>port = 9090</c> lands at <c>:port</c>.</remarks>
-    ///
+    /// <summary>Layers lines over this document.</summary>
+    /// <param name="lines">The lines to read, by the rules <c>FromLines</c> uses.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document in which the given parameters win on a shared key and this document's
+    /// own parameters survive, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser cannot
+    /// read.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="lines"/>, or any line in it, is null.
+    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    member AppendLines: lines: seq<string> -> Result<Ini, string>
+    /// <remarks>
+    /// Parsing starts at the root section, by design, so <c>Ini.Empty.AppendLines(lines)</c> is
+    /// <c>Ini.FromLines(lines)</c> and an appended layer opens its own sections when it means to write
+    /// into them.
+    /// </remarks>
+    member AppendLines: lines: seq<string> -> Result<Ini, ParserError>
 
-    /// <summary>True if the document holds no parameters.</summary>
+    /// <summary>Whether the document holds no parameters.</summary>
     member IsEmpty: bool
 
-    /// <summary>Adds a parameter, overwriting any parameter already under the same key.</summary>
-    ///
-    /// <param name="key">The key to write, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section. It is not trimmed or repaired.</param>
-    /// <param name="value">The value to write. A blank value is stored verbatim.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Invalid key: &lt;key&gt;."</c> if the parser would
-    /// reject <paramref name="key"/>.</returns>
-    ///
+    /// <summary>Adds a parameter, or overwrites the one already under that key.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="value">The value, kept as written.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document holding the parameter, or <c>Error</c> of <c>InvalidKey</c> when the
+    /// parser rejects the key.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="key"/> or <paramref name="value"/> is null.
+    /// <paramref name="key"/> or <paramref name="value"/> is <c>null</c>.
     /// </exception>
-    member Add: key: string * value: string -> Result<Ini, string>
+    member Add: key: string * value: string -> Result<Ini, ParserError>
 
-    /// <summary>Looks up an exact key.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <returns>The value found, as <c>Some</c>, or <c>None</c> if the key is absent. From C#, that is a
-    /// non-null <c>FSharpOption&lt;string&gt;</c> whose <c>Value</c> holds the payload, or <c>null</c>.</returns>
-    ///
-    /// <remarks>Does not walk the section hierarchy; see
-    /// <see cref="M:Fini.Ini.TryFindNested(System.String)"/>.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Looks up one key, exactly.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns><c>Some</c> of the value, or <c>None</c> when the document holds no such key.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Never walks the section hierarchy. From C# the result is a possibly-<c>null</c>
+    /// <c>FSharpOption&lt;string&gt;</c> whose <c>Value</c> holds the payload.
+    /// </remarks>
     member TryFind: key: string -> string option
 
-    /// <summary>Looks up a key, walking up the section hierarchy.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <returns>The value found, as <c>Some</c>, or <c>None</c> if the parameter is absent from the given
-    /// section and every one of its ancestors. From C#, that is a non-null
-    /// <c>FSharpOption&lt;string&gt;</c> whose <c>Value</c> holds the payload, or <c>null</c>.</returns>
-    ///
-    /// <remarks>A dotted section name is read as a hierarchy: the given section is tried first, then each
-    /// ancestor in turn, then the root. So <c>server.dev:host</c> falls back to <c>server:host</c> and then
-    /// to <c>:host</c>.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Looks up one key, walking up the section hierarchy.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns>
+    /// <c>Some</c> of the value found in the given section, or failing that in its nearest dotted
+    /// ancestor, or failing that in the root section; <c>None</c> when none of them holds the parameter.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <example>
+    /// Over the document <c>timeout = 30</c>, <c>[server] host = localhost</c>,
+    /// <c>[server.dev] port = 5000</c>: <c>server.dev:port</c> gives <c>5000</c> from the section itself,
+    /// <c>server.dev:host</c> gives <c>localhost</c> inherited from <c>[server]</c>, and
+    /// <c>server.dev:timeout</c> gives <c>30</c> inherited from the root.
+    /// </example>
     member TryFindNested: key: string -> string option
 
-    /// <summary>Looks up an exact key, raising if it is absent.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <returns>The value found.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">The key is absent.</exception>
+    /// <summary>Looks up one key, exactly. The partial counterpart of <c>TryFind</c>.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns>The value.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
+    /// The document holds no such key.
+    /// </exception>
     member Find: key: string -> string
 
-    /// <summary>Looks up a key walking up the section hierarchy, raising if it is absent.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <returns>The value found in the given section or in the nearest ancestor that holds the
-    /// parameter.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">Neither the section nor any of its
-    /// ancestors holds the parameter.</exception>
+    /// <summary>
+    /// Looks up one key, walking up the section hierarchy. The partial counterpart of
+    /// <c>TryFindNested</c>.
+    /// </summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns>The value found in the given section, in its nearest dotted ancestor, or in the root.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
+    /// Neither the section nor any of its ancestors nor the root holds the parameter.
+    /// </exception>
     member FindNested: key: string -> string
 
-    /// <summary>Removes one key.</summary>
-    ///
-    /// <param name="key">The key to remove, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <returns>A new document without the key, or a document equal to this one if the key is absent.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Removes one parameter.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns>
+    /// A new document without that parameter, or one equal to this document when the key is absent.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
     member Remove: key: string -> Ini
 
     /// <summary>The number of parameters in the document.</summary>
     member Count: int
 
-    /// <summary>True if the document holds a parameter under the exact key.</summary>
-    ///
-    /// <param name="key">The key to test, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Whether the document holds that key.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns><c>true</c> when the key is present, matched case-insensitively.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
     member ContainsKey: key: string -> bool
 
-    /// <summary>The keys of the document, as <c>section:parameter</c>, in key order.</summary>
+    /// <summary>The keys, in key order, each of the form <c>section:parameter</c>.</summary>
+    /// <remarks>A root parameter is keyed <c>:name</c>.</remarks>
     member Keys: seq<string>
 
-    /// <summary>The values of the document, aligned with <see cref="P:Fini.Ini.Keys"/>.</summary>
+    /// <summary>The values, in key order, aligned with <c>Keys</c>.</summary>
     member Values: seq<string>
 
-    /// <summary>The key-value pairs of the document, in key order.</summary>
+    /// <summary>The parameters as key/value pairs, in key order.</summary>
+    /// <remarks>The shape <c>Create</c> takes, so the two round-trip a document.</remarks>
     member KeyValuePairs: seq<KeyValuePair<string, string>>
 
-    /// <summary>The distinct section names of the document, in key order, with the root section as the empty
-    /// string.</summary>
-    ///
-    /// <remarks>Names differing only in case count as one, and a dotted child section appears under its own
-    /// full name.</remarks>
+    /// <summary>The distinct section names, in key order, <c>""</c> for the root section.</summary>
+    /// <remarks>
+    /// A dotted name is stored verbatim and is a section of its own, so <c>[server]</c> and
+    /// <c>[server.dev]</c> are two names.
+    /// </remarks>
     member Sections: seq<string>
 
-    /// <summary>One section as a standalone document.</summary>
-    ///
-    /// <param name="name">The section name, matched case-insensitively, or the empty string for the root
-    /// section.</param>
-    ///
-    /// <returns>A document holding the parameters of that section, keyed as in this document, or the empty
-    /// document if the section holds none.</returns>
-    ///
-    /// <remarks>Dotted child sections are excluded: <c>Section "alpha"</c> does not include
-    /// <c>alpha.beta</c>.</remarks>
+    /// <summary>Takes one section as a standalone document.</summary>
+    /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
+    /// <returns>
+    /// A new document holding only that section's parameters, with their keys unchanged, or the empty
+    /// document when nothing matches.
+    /// </returns>
+    /// <remarks>
+    /// Dotted children are excluded. The result renders back to a valid standalone document, and this
+    /// document is left untouched. A <c>null</c> name is not guarded and simply matches nothing.
+    /// </remarks>
     member Section: name: string -> Ini
 
-    /// <summary>Renders the document as lines.</summary>
-    ///
-    /// <returns>The root parameters first with no header, then one <c>[section]</c> block per section
-    /// separated by a blank line.</returns>
-    ///
-    /// <remarks>The output is normalised, not a copy of the input: comments, blank lines, original ordering
-    /// and duplicate entries are not preserved. Values are, so rendering and parsing round-trip. An empty
-    /// value renders as <c>x =</c>.</remarks>
+    /// <summary>Removes one whole section. The complement of <c>Section</c>.</summary>
+    /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
+    /// <returns>
+    /// A new document without that section's parameters, or one equal to this document when nothing
+    /// matches.
+    /// </returns>
+    /// <remarks>
+    /// Dotted children are sections of their own, so removing <c>alpha</c> leaves <c>alpha.beta</c> in
+    /// place — remove it by name, or fold over <c>Sections</c> to drop a whole subtree. A <c>null</c> name
+    /// is not guarded and simply matches nothing.
+    /// </remarks>
+    member RemoveSection: name: string -> Ini
+
+    /// <summary>Renders the document.</summary>
+    /// <returns>
+    /// The lines of a canonical document, computed lazily: root parameters first with no header, then one
+    /// <c>[section]</c> block per section separated by a blank line, all in key order. An empty value
+    /// renders as <c>x =</c>.
+    /// </returns>
+    /// <remarks>
+    /// The output is normalised, not a faithful copy of the input: comments, blank lines, original
+    /// ordering and duplicate entries are not preserved. Values are, so rendering and parsing back gives
+    /// an equal document.
+    /// </remarks>
     member ToLines: unit -> seq<string>
 
-    /// <summary>Renders the document to a file, overwriting it if it exists.</summary>
-    ///
-    /// <param name="path">The path of the file to write.</param>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be written; the exceptions of
-    /// <see cref="M:System.IO.File.WriteAllLines(System.String,System.Collections.Generic.IEnumerable{System.String})"/>
-    /// propagate unchanged.</exception>
+    /// <summary>Renders the document to a file, by the rules <c>ToLines</c> uses.</summary>
+    /// <param name="path">The path of the file to write, overwritten when it already exists.</param>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be written.</exception>
+    /// <remarks>Writes the lines with <c>File.WriteAllLines</c>, so each ends with the platform newline.</remarks>
     member ToFile: path: string -> unit
 
-    /// <summary>Renders the document, joining the lines with <c>\n</c>.</summary>
+    /// <summary>Renders the document, by the rules <c>ToLines</c> uses.</summary>
+    /// <returns>The lines joined with <c>\n</c>.</returns>
     override ToString: unit -> string
 
     interface IEnumerable<KeyValuePair<string, string>>
@@ -255,253 +311,259 @@ type Ini =
     interface IStructuralComparable
     interface IStructuralEquatable
 
-/// <summary>Functional operations on <see cref="T:Fini.Ini"/>.</summary>
-///
-/// <remarks>The document is always the last parameter, so the functions compose with <c>|&gt;</c>.</remarks>
+/// <summary>
+/// Functions over <see cref="T:Fini.Ini"/>, the document last so that they compose with <c>|&gt;</c>.
+/// </summary>
 [<RequireQualifiedAccess>]
 module Ini =
     /// <summary>The empty document.</summary>
     val empty: Ini
 
-    /// <summary>Builds a document from a sequence of key-value pairs.</summary>
-    ///
-    /// <param name="pairs">The pairs to add, each keyed <c>section:parameter</c>. A later pair overwrites an
-    /// earlier one with the same key.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Invalid key: &lt;key&gt;."</c> for the first key the
-    /// parser would reject.</returns>
-    ///
+    /// <summary>Builds a document from key/value tuples.</summary>
+    /// <param name="pairs">
+    /// The pairs to add, each key of the form <c>section:parameter</c>. A later pair overwrites an earlier
+    /// one with the same key. Enumerated lazily, and only up to the first invalid key.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidKey</c> for the first key the parser
+    /// rejects.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="pairs"/>, or the key or the value of any pair in it, is null.
+    /// <paramref name="pairs"/>, or a member of one of its tuples, is <c>null</c>.
     /// </exception>
-    val ofSeq: pairs: seq<string * string> -> Result<Ini, string>
+    /// <remarks>
+    /// Takes the shape <c>toSeq</c> produces, so <c>ini |&gt; Ini.toSeq |&gt; Ini.ofSeq</c> round-trips a
+    /// document.
+    /// </remarks>
+    val ofSeq: pairs: seq<string * string> -> Result<Ini, ParserError>
 
-    /// <summary>Parses the lines of a file.</summary>
-    ///
+    /// <summary>Parses a file into a document.</summary>
     /// <param name="path">The path of the file to read.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>Reads lazily and stops at the first unparsable line, closing the file handle on the way
-    /// out.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be read; the exceptions of
-    /// <see cref="M:System.IO.File.ReadLines(System.String)"/> propagate unchanged.</exception>
-    val fromFile: path: string -> Result<Ini, string>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser
+    /// cannot read.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be read.</exception>
+    /// <remarks>
+    /// A single lazy pass that stops at the first unparsable line, closing the file handle on the way out.
+    /// </remarks>
+    val fromFile: path: string -> Result<Ini, ParserError>
 
-    /// <summary>Parses a sequence of lines.</summary>
-    ///
-    /// <param name="lines">The lines to parse. Parameters before the first <c>[section]</c> header belong to
-    /// the root section; a later parameter overwrites an earlier one with the same key.</param>
-    ///
-    /// <returns><c>Ok</c> of the document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>Reads the sequence lazily and stops at the first unparsable line.</remarks>
-    ///
+    /// <summary>Parses lines into a document.</summary>
+    /// <param name="lines">
+    /// The lines to read: <c>[name]</c> opens a section, <c>name = value</c> is a parameter in the current
+    /// section, <c>; text</c> and <c># text</c> are comments, blank and whitespace lines are ignored, and
+    /// anything else is an error. Parameters before the first header belong to the root section.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser
+    /// cannot read.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="lines"/>, or any line in it, is null.
+    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    val fromLines: lines: seq<string> -> Result<Ini, string>
+    val fromLines: lines: seq<string> -> Result<Ini, ParserError>
 
-    /// <summary>Layers the lines of a file over a document.</summary>
-    ///
+    /// <summary>Layers a file over a document.</summary>
     /// <param name="path">The path of the file to read.</param>
-    /// <param name="ini">The document to layer the file over.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>The file wins on a shared key; keys only present in <paramref name="ini"/> survive. The file
-    /// is parsed from the root section, by exactly the rules <c>fromFile</c> uses.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be read; the exceptions of
-    /// <see cref="M:System.IO.File.ReadLines(System.String)"/> propagate unchanged.</exception>
-    val appendFile: path: string -> ini: Ini -> Result<Ini, string>
+    /// <param name="ini">The document to layer it over, left untouched.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document in which the file's parameters win on a shared key and the given
+    /// document's own parameters survive, or <c>Error</c> of <c>InvalidLine</c> for the first line the
+    /// parser cannot read.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be read.</exception>
+    /// <remarks>
+    /// Parsing starts at the root section, by design: a layer's lines are read by exactly the rules
+    /// <c>fromLines</c> uses, so load order decides which value wins, never which key a line writes to.
+    /// </remarks>
+    val appendFile: path: string -> ini: Ini -> Result<Ini, ParserError>
 
-    /// <summary>Layers a sequence of lines over a document.</summary>
-    ///
-    /// <param name="lines">The lines to parse.</param>
-    /// <param name="ini">The document to layer the lines over.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Cannot parse line: &lt;line&gt;."</c> for the first
-    /// unparsable line.</returns>
-    ///
-    /// <remarks>The appended lines win on a shared key; keys only present in <paramref name="ini"/> survive.
-    /// Parsing starts at the root section, so a line's key depends on <paramref name="lines"/> alone and
-    /// never on the sections already present: appending <c>port = 9090</c> lands at <c>:port</c>. Hence
-    /// <c>Ini.empty |&gt; Ini.appendLines lines</c> is <c>Ini.fromLines lines</c>.</remarks>
-    ///
+    /// <summary>Layers lines over a document.</summary>
+    /// <param name="lines">The lines to read, by the rules <c>fromLines</c> uses.</param>
+    /// <param name="ini">The document to layer them over, left untouched.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document in which the given parameters win on a shared key and the document's
+    /// own parameters survive, or <c>Error</c> of <c>InvalidLine</c> for the first line the parser cannot
+    /// read.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="lines"/>, or any line in it, is null.
+    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    val appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, string>
+    /// <remarks>
+    /// Parsing starts at the root section, by design, so <c>Ini.empty |&gt; Ini.appendLines lines</c> is
+    /// <c>Ini.fromLines lines</c>.
+    /// </remarks>
+    val appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, ParserError>
 
-    /// <summary>True if the document holds no parameters.</summary>
-    ///
-    /// <param name="ini">The document to test.</param>
+    /// <summary>Whether a document holds no parameters.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns><c>true</c> when the document is empty.</returns>
     val isEmpty: ini: Ini -> bool
 
-    /// <summary>Adds a parameter, overwriting any parameter already under the same key.</summary>
-    ///
-    /// <param name="key">The key to write, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section. It is not trimmed or repaired.</param>
-    /// <param name="value">The value to write. A blank value is stored verbatim.</param>
-    /// <param name="ini">The document to add to.</param>
-    ///
-    /// <returns><c>Ok</c> of a new document, or <c>Error "Invalid key: &lt;key&gt;."</c> if the parser would
-    /// reject <paramref name="key"/>.</returns>
-    ///
+    /// <summary>Adds a parameter, or overwrites the one already under that key.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="value">The value, kept as written.</param>
+    /// <param name="ini">The document to add it to, left untouched.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document holding the parameter, or <c>Error</c> of <c>InvalidKey</c> when the
+    /// parser rejects the key.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="key"/> or <paramref name="value"/> is null.
+    /// <paramref name="key"/> or <paramref name="value"/> is <c>null</c>.
     /// </exception>
-    val add: key: string -> value: string -> ini: Ini -> Result<Ini, string>
+    val add: key: string -> value: string -> ini: Ini -> Result<Ini, ParserError>
 
-    /// <summary>Looks up an exact key.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to search.</param>
-    ///
-    /// <returns><c>Some</c> of the value, or <c>None</c> if the key is absent.</returns>
-    ///
-    /// <remarks>Does not walk the section hierarchy; see <c>tryFindNested</c>.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Looks up one key, exactly.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns><c>Some</c> of the value, or <c>None</c> when the document holds no such key.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <remarks>Never walks the section hierarchy.</remarks>
     val tryFind: key: string -> ini: Ini -> string option
 
-    /// <summary>Looks up a key, walking up the section hierarchy.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to search.</param>
-    ///
-    /// <returns><c>Some</c> of the value found in the given section or in the nearest ancestor that holds the
-    /// parameter, or <c>None</c> if none does.</returns>
-    ///
-    /// <remarks>A dotted section name is read as a hierarchy: the given section is tried first, then each
-    /// ancestor in turn, then the root. So <c>server.dev:host</c> falls back to <c>server:host</c> and then
-    /// to <c>:host</c>.</remarks>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Looks up one key, walking up the section hierarchy.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns>
+    /// <c>Some</c> of the value found in the given section, or failing that in its nearest dotted
+    /// ancestor, or failing that in the root section; <c>None</c> when none of them holds the parameter.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <example>
+    /// Over the document <c>timeout = 30</c>, <c>[server] host = localhost</c>,
+    /// <c>[server.dev] port = 5000</c>: <c>server.dev:port</c> gives <c>5000</c> from the section itself,
+    /// <c>server.dev:host</c> gives <c>localhost</c> inherited from <c>[server]</c>, and
+    /// <c>server.dev:timeout</c> gives <c>30</c> inherited from the root.
+    /// </example>
     val tryFindNested: key: string -> ini: Ini -> string option
 
-    /// <summary>Looks up an exact key, raising if it is absent.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to search.</param>
-    ///
-    /// <returns>The value found.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">The key is absent.</exception>
+    /// <summary>Looks up one key, exactly. The partial counterpart of <c>tryFind</c>.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns>The value.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
+    /// The document holds no such key.
+    /// </exception>
     val find: key: string -> ini: Ini -> string
 
-    /// <summary>Looks up a key walking up the section hierarchy, raising if it is absent.</summary>
-    ///
-    /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to search.</param>
-    ///
-    /// <returns>The value found in the given section or in the nearest ancestor that holds the
-    /// parameter.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">Neither the section nor any of its
-    /// ancestors holds the parameter.</exception>
+    /// <summary>
+    /// Looks up one key, walking up the section hierarchy. The partial counterpart of
+    /// <c>tryFindNested</c>.
+    /// </summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns>The value found in the given section, in its nearest dotted ancestor, or in the root.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
+    /// Neither the section nor any of its ancestors nor the root holds the parameter.
+    /// </exception>
     val findNested: key: string -> ini: Ini -> string
 
-    /// <summary>Removes one key.</summary>
-    ///
-    /// <param name="key">The key to remove, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to remove from.</param>
-    ///
-    /// <returns>A new document without the key, or a document equal to <paramref name="ini"/> if the key is
-    /// absent.</returns>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Removes one parameter.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document to remove it from, left untouched.</param>
+    /// <returns>
+    /// A new document without that parameter, or one equal to the given document when the key is absent.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
     val remove: key: string -> ini: Ini -> Ini
 
-    /// <summary>The number of parameters in the document.</summary>
-    ///
-    /// <param name="ini">The document to count.</param>
+    /// <summary>The number of parameters in a document.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The parameter count.</returns>
     val count: ini: Ini -> int
 
-    /// <summary>True if the document holds a parameter under the exact key.</summary>
-    ///
-    /// <param name="key">The key to test, as <c>section:parameter</c> or <c>parameter</c> for the root
-    /// section.</param>
-    /// <param name="ini">The document to search.</param>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <summary>Whether a document holds that key.</summary>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns><c>true</c> when the key is present, matched case-insensitively.</returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
     val containsKey: key: string -> ini: Ini -> bool
 
-    /// <summary>The keys of the document, as <c>section:parameter</c>, in key order.</summary>
-    ///
-    /// <param name="ini">The document to enumerate.</param>
+    /// <summary>The keys of a document, in key order, each of the form <c>section:parameter</c>.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The keys; a root parameter is keyed <c>:name</c>.</returns>
     val keys: ini: Ini -> seq<string>
 
-    /// <summary>The values of the document, aligned with <c>keys</c>.</summary>
-    ///
-    /// <param name="ini">The document to enumerate.</param>
+    /// <summary>The values of a document, in key order, aligned with <c>keys</c>.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The values.</returns>
     val values: ini: Ini -> seq<string>
 
-    /// <summary>The distinct section names of the document, in key order, with the root section as the empty
-    /// string.</summary>
-    ///
-    /// <param name="ini">The document to enumerate.</param>
-    ///
-    /// <remarks>Names differing only in case count as one, and a dotted child section appears under its own
-    /// full name.</remarks>
+    /// <summary>The distinct section names of a document, in key order.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The names, <c>""</c> for the root section.</returns>
+    /// <remarks>
+    /// A dotted name is stored verbatim and is a section of its own, so <c>[server]</c> and
+    /// <c>[server.dev]</c> are two names.
+    /// </remarks>
     val sections: ini: Ini -> seq<string>
 
-    /// <summary>One section as a standalone document.</summary>
-    ///
-    /// <param name="name">The section name, matched case-insensitively, or the empty string for the root
-    /// section.</param>
-    /// <param name="ini">The document to take the section from.</param>
-    ///
-    /// <returns>A document holding the parameters of that section, keyed as in <paramref name="ini"/>, or the
-    /// empty document if the section holds none.</returns>
-    ///
-    /// <remarks>Dotted child sections are excluded: <c>section "alpha"</c> does not include
-    /// <c>alpha.beta</c>.</remarks>
+    /// <summary>Takes one section as a standalone document.</summary>
+    /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
+    /// <param name="ini">The document to take it from, left untouched.</param>
+    /// <returns>
+    /// A new document holding only that section's parameters, with their keys unchanged, or the empty
+    /// document when nothing matches.
+    /// </returns>
+    /// <remarks>
+    /// Dotted children are excluded. The result renders back to a valid standalone document:
+    /// <c>ini |&gt; Ini.section "alpha" |&gt; Ini.toLines</c> gives <c>[ "[alpha]"; "x = 1" ]</c>. A
+    /// <c>null</c> name is not guarded and simply matches nothing.
+    /// </remarks>
     val section: name: string -> ini: Ini -> Ini
 
-    /// <summary>The key-value pairs of the document, in key order.</summary>
-    ///
-    /// <param name="ini">The document to enumerate.</param>
+    /// <summary>Removes one whole section. The complement of <c>section</c>.</summary>
+    /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
+    /// <param name="ini">The document to remove it from, left untouched.</param>
+    /// <returns>
+    /// A new document without that section's parameters, or one equal to the given document when nothing
+    /// matches.
+    /// </returns>
+    /// <remarks>
+    /// Dotted children are sections of their own, so removing <c>alpha</c> leaves <c>alpha.beta</c> in
+    /// place — remove it by name, or fold over <c>Ini.sections</c> to drop a whole subtree. A <c>null</c>
+    /// name is not guarded and simply matches nothing.
+    /// </remarks>
+    val removeSection: name: string -> ini: Ini -> Ini
+
+    /// <summary>The parameters of a document as key/value tuples, in key order.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The pairs, in the shape <c>ofSeq</c> takes.</returns>
     val toSeq: ini: Ini -> seq<string * string>
 
-    /// <summary>Renders the document as lines.</summary>
-    ///
-    /// <param name="ini">The document to render.</param>
-    ///
-    /// <returns>The root parameters first with no header, then one <c>[section]</c> block per section
-    /// separated by a blank line.</returns>
-    ///
-    /// <remarks>The output is normalised, not a copy of the input: comments, blank lines, original ordering
-    /// and duplicate entries are not preserved. Values are, so rendering and parsing round-trip. An empty
-    /// value renders as <c>x =</c>.</remarks>
+    /// <summary>Renders a document.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>
+    /// The lines of a canonical document, computed lazily: root parameters first with no header, then one
+    /// <c>[section]</c> block per section separated by a blank line, all in key order. An empty value
+    /// renders as <c>x =</c>.
+    /// </returns>
+    /// <remarks>
+    /// The output is normalised, not a faithful copy of the input: comments, blank lines, original
+    /// ordering and duplicate entries are not preserved. Values are, so rendering and parsing back gives
+    /// an equal document.
+    /// </remarks>
     val toLines: ini: Ini -> seq<string>
 
-    /// <summary>Renders the document to a file, overwriting it if it exists.</summary>
-    ///
-    /// <param name="path">The path of the file to write.</param>
-    /// <param name="ini">The document to render.</param>
-    ///
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is null.</exception>
-    /// <exception cref="T:System.IO.IOException">The file cannot be written; the exceptions of
-    /// <see cref="M:System.IO.File.WriteAllLines(System.String,System.Collections.Generic.IEnumerable{System.String})"/>
-    /// propagate unchanged.</exception>
+    /// <summary>Renders a document to a file, by the rules <c>toLines</c> uses.</summary>
+    /// <param name="path">The path of the file to write, overwritten when it already exists.</param>
+    /// <param name="ini">The document.</param>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file cannot be written.</exception>
+    /// <remarks>Writes the lines with <c>File.WriteAllLines</c>, so each ends with the platform newline.</remarks>
     val toFile: path: string -> ini: Ini -> unit
 
-    /// <summary>Renders the document, joining the lines with <c>\n</c>.</summary>
-    ///
-    /// <param name="ini">The document to render.</param>
+    /// <summary>Renders a document, by the rules <c>toLines</c> uses.</summary>
+    /// <param name="ini">The document.</param>
+    /// <returns>The lines joined with <c>\n</c>.</returns>
     val toString: ini: Ini -> string

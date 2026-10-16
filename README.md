@@ -1,20 +1,18 @@
 # Fini
 
 [![NuGet](https://img.shields.io/nuget/vpre/Fini.svg)](https://www.nuget.org/packages/Fini)
+[![Build](https://github.com/glokhov/fini/actions/workflows/build.yml/badge.svg)](https://github.com/glokhov/fini/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/glokhov/fini/blob/main/LICENSE)
 
-A simple, **immutable** INI parser for .NET, written in F#.
+A simple INI parser written in F#.
 
 > [!WARNING]
-> Version 3 is a complete rewrite of version 2 and is **not** source- or binary-compatible with it. The
-> document model and the entire API surface have changed — key shape (`section:parameter` instead of
-> separate section and key arguments), error handling (`Result` instead of `option`/silent fallback), and
-> a first-class C# surface are all new. Upgrading from version 2 means migrating code, not just bumping a
-> package version.
+> Version 0.3.0 is a complete rewrite of version 0.2.1 and is **not** source- or binary-compatible with it.
+> The document model and the entire API surface have changed — key shape, error handling, and a first-class
+> C# surface are all new. Upgrading from version 0.2.1 means migrating code.
 
-An `Ini` is a value: every operation that changes a document returns a new one, the original is untouched,
-and two documents can be compared with `=`. Parsing and key validation report failure as
-`Result<Ini, string>` rather than by raising. The API is usable from both F# and C#.
+A document is **immutable**: every operation that would change it returns a new one, two documents are equal when they hold
+the same keys and values, and the whole model is flat — one parameter per key, keyed `section:parameter`.
 
 ## Install
 
@@ -22,194 +20,14 @@ and two documents can be compared with `=`. Parsing and key validation report fa
 dotnet add package Fini --prerelease
 ```
 
-The package targets `net10.0`.
+Targets `net10.0`. The only dependency is `FSharp.Core`.
 
 ## Quick start
 
-F#:
-
-```fsharp
-open Fini
-
-let ini =
-    match Ini.fromLines [ "timeout = 30"
-                          "[server]"
-                          "host = localhost"
-                          "[server.dev]"
-                          "port = 5000" ] with
-    | Ok ini -> ini
-    | Error err -> failwith err
-
-let host = ini |> Ini.tryFind "server:host"                 // Some "localhost"
-let inherited = ini |> Ini.tryFindNested "server.dev:host"  // Some "localhost"
-let port = ini |> Ini.find "server.dev:port"                // "5000"
-let timeout = ini |> Ini.find "timeout"                     // "30"
-
-// Ok of a new document; `ini` still has its three entries
-let updated = ini |> Ini.add "server:port" "8080"
-```
-
-C#:
-
-```csharp
-using Fini;
-
-var result = Ini.FromLines([
-    "timeout = 30",
-    "[server]",
-    "host = localhost",
-    "[server.dev]",
-    "port = 5000",
-]);
-
-if (result.IsError)
-{
-    Console.Error.WriteLine(result.ErrorValue);
-    return;
-}
-
-var ini = result.ResultValue;
-
-var host = ini.TryFind("server:host") switch                // "localhost"
-{
-    { Value: var value } => value,
-    null => null
-};
-
-var inherited = ini.TryFindNested("server.dev:host") switch // "localhost"
-{
-    { Value: var value } => value,
-    null => null
-};
-
-var port = ini.Find("server.dev:port");                     // "5000"
-
-var updated = ini.Add("server:port", "8080").ResultValue;
-
-foreach (var (key, value) in updated)
-{
-    Console.WriteLine($"{key} = {value}");
-}
-```
-
-Files round-trip:
-
-```fsharp
-Ini.fromFile "settings.ini" |> Result.map (Ini.add "server:port" "8080")
-```
-
-## Using options from C#
-
-`TryFind` and `TryFindNested` have one member signature for both languages: `key: string -> string option`.
-From C#, `string option` is `FSharpOption<string>` — `None` is `null` and `Some value` is a non-null
-instance whose `Value` holds the payload. A property pattern in a switch expression reads naturally either
-way:
-
-```csharp
-// Unwrap to a value, substituting a default on a miss
-var host = ini.TryFind("server:host") switch
-{
-    { Value: var value } => value,
-    null => "localhost"
-};
-
-// Branch on presence without needing the value
-var greeting = ini.TryFind("server:host") switch
-{
-    { Value: var value } => $"Connecting to {value}",
-    null => "No host configured"
-};
-
-// Just testing for presence
-if (ini.TryFind("server:host") is { Value: var host2 })
-{
-    Console.WriteLine(host2);
-}
-```
-
-`Find` / `FindNested` stay plain C# methods returning `string` — reach for them instead when a missing key
-is a bug, not a case to handle.
-
-## The document model
-
-A document is **flattened**: every parameter is one entry keyed `section:parameter`. There is no nested
-object to walk, so lookup, enumeration and rendering all work on the same flat sequence of pairs, in key
-order.
+Given `app.ini`:
 
 ```ini
-timeout = 30
-
-[server]
-host = localhost
-```
-
-is two entries, `:timeout` and `server:host`.
-
-## File format
-
-| Line | Meaning |
-| --- | --- |
-| `[name]` | opens a section; the following parameters belong to it |
-| `name = value` | a parameter in the current section |
-| `; text` or `# text` | comment, ignored |
-| blank or whitespace | ignored |
-| anything else | `Error "Cannot parse line: <line>."` |
-
-**Names** — a section name and a parameter name may use any characters except whitespace and
-`= : ; # [ ]`, and must be non-empty. So `[]`, `[a b]`, `a b = 1` and `[alpha:beta]` are all errors. The
-colon is reserved as the key separator, which is what makes every key split unambiguously into exactly two
-parts.
-
-**Values** — everything after the **first** `=`, with surrounding whitespace trimmed. A value may contain
-`=`, `:`, `;` and `#`, and may be empty:
-
-| Line | Value |
-| --- | --- |
-| `x = a=b=c` | `a=b=c` |
-| `url = https://example.com:8080/a:b` | `https://example.com:8080/a:b` |
-| `fragment = https://example.com/doc#rfc` | `https://example.com/doc#rfc` |
-| `empty =` | the empty string |
-
-**Whitespace** is trimmed around a header, around a name and around a value, but kept inside a value:
-`x =\ta\tb\t` yields `"a\tb"`.
-
-**Parameters before the first header** belong to the root section, keyed `:name`.
-
-**Duplicates** — a later parameter overwrites an earlier one with the same key, and a section may be
-reopened later in the file.
-
-Parsing is a single lazy pass that stops at the first unparsable line: a 10,000-line source with a bad
-line at position 3 reads three lines, and `fromFile` closes the file handle on the way out.
-
-## Keys
-
-A key is `section:parameter`. A key with no colon refers to the root section, so `x` and `:x` are the same
-key.
-
-Keys are compared **case-insensitively** (`OrdinalIgnoreCase`), both halves; values are kept and compared
-as written.
-
-```fsharp
-ini |> Ini.tryFind "ALPHA:X"   // finds alpha:x
-```
-
-Keys are never trimmed or repaired. A key the parser would reject is therefore simply absent rather than
-an error: `tryFind` gives `None`, `containsKey` gives `false`, `remove` is a no-op, and `find` raises
-`KeyNotFoundException`. On the way *in* — `add` and `ofSeq` — the same key is an `Error "Invalid key: …"`,
-which keeps the invariant that anything `toLines` writes, `fromLines` can read back.
-
-Two `Ini` values are equal when they hold the same keys and the same values. Section and parameter name
-case, declaration order, comments and blank lines are not taken into account; values and their case are.
-Equal documents have equal hash codes, and documents are ordered too — `compare` and `List.sort` order them
-by keys and then values, in agreement with equality.
-
-## Nested sections
-
-A dotted section name is just a name — the parser stores `[server.dev]` verbatim. The hierarchy is
-interpreted on lookup: `tryFindNested` / `findNested` try the given section first, then each ancestor in
-turn, then the root.
-
-```ini
+; a parameter before the first header belongs to the root section
 timeout = 30
 
 [server]
@@ -220,122 +38,255 @@ port = 8080
 port = 5000
 ```
 
-```fsharp
-ini |> Ini.tryFindNested "server.dev:port"      // Some "5000"      — the section itself
-ini |> Ini.tryFindNested "server.dev:host"      // Some "localhost" — inherited from [server]
-ini |> Ini.tryFindNested "server.dev:timeout"   // Some "30"        — inherited from the root
-ini |> Ini.tryFindNested "server.dev:nope"      // None
-```
-
-`tryFind` never walks the hierarchy; it is an exact-key lookup.
-
-## Appending
-
-`appendLines` and `appendFile` layer a document over an existing one — a shipped default, then a machine
-override, then a user one. Later layers win on a shared key, and keys only present in earlier layers
-survive.
+### F#
 
 ```fsharp
-Ini.fromFile "defaults.ini"
-|> Result.bind (Ini.appendFile "machine.ini")
-|> Result.bind (Ini.appendFile "user.ini")
+open Fini
+
+match Ini.fromFile "app.ini" with
+| Error err -> eprintfn $"%A{err}"
+| Ok ini ->
+
+// exact lookup
+ini |> Ini.find "server:host"              // "localhost"
+ini |> Ini.tryFind "server.dev:host"       // None
+ini |> Ini.tryFind "timeout"               // Some "30" — no colon means the root section
+
+// lookup that walks up the section hierarchy
+ini |> Ini.findNested "server.dev:port"    // "5000"  — from the section itself
+ini |> Ini.findNested "server.dev:host"    // "localhost" — inherited from [server]
+ini |> Ini.findNested "server.dev:timeout" // "30"    — inherited from the root
 ```
 
-Each call **starts at the root section**, by design: a layer's lines are parsed by exactly the rules
-`fromLines` uses, so a file's keys depend on that file alone. Load order decides which value wins, never
-which key a line writes to, and `Ini.empty |> Ini.appendLines lines` is `Ini.fromLines lines`. An appended
-layer opens its own sections when it means to write into them — appending `port = 9090` lands at `:port`
-regardless of the sections already present in the document it is layered onto.
+Building a document, and rendering it back:
+
+```fsharp
+let ini =
+    Ini.empty
+    |> Ini.add "timeout" "30"
+    |> Result.bind (Ini.add "server:host" "localhost")
+    |> Result.bind (Ini.add "server:port" "8080")
+
+ini |> Result.map Ini.toString
+// Ok "timeout = 30\n\n[server]\nhost = localhost\nport = 8080"
+```
+
+The functions take the document last, so they compose with `|>`. `Ini.toFile` writes, `Ini.toLines` yields
+the lines lazily.
+
+### C#
+
+```csharp
+using Fini;
+
+var result = Ini.FromFile("app.ini");
+
+if (result.IsError)
+{
+    Console.Error.WriteLine(result.ErrorValue); // e.g. InvalidLine "oops"
+    return;
+}
+
+Ini ini = result.ResultValue;
+
+string host = ini.Find("server:host");           // "localhost"
+string port = ini.FindNested("server.dev:port"); // "5000"
+
+// a miss is null, so an option pattern reads naturally
+if (ini.TryFind("server:tls") is { Value: var tls })
+{
+    Console.WriteLine(tls);
+}
+
+// every change returns a new document
+Ini next = ini.Add("server:tls", "true").ResultValue;
+
+foreach (var (key, value) in next) // IEnumerable<KeyValuePair<string, string>>
+{
+    Console.WriteLine($"{key} = {value}");
+}
+
+next.ToFile("app.ini");
+```
+
+## F# types from C#
+
+`TryFind` hands back an `FSharpOption<string>` and the parsing functions an
+`FSharpResult<Ini, ParserError>` (both from `Microsoft.FSharp.Core`). They are ordinary .NET types, and C#
+pattern matching reads them as they are — no wrapper, no conversion helper.
+
+An option is a class whose `None` is `null`, so a hit is a property pattern and a miss is a null check:
+
+```csharp
+// is patterns
+if (ini.TryFind("server:host") is { Value: var host }) { /* found */ }
+if (ini.TryFind("server:tls") is null) { /* absent */ }
+
+// switch expression: null never matches a property pattern,
+// so these two arms cover both cases between them
+string host = ini.TryFind("server:host") switch
+{
+    { Value: var value } => value,
+    null => "0.0.0.0"
+};
+
+// ternary, and the null-conditional shortcut for a default
+var port = ini.TryFind("server:port");
+int number = port is null ? 8080 : int.Parse(port.Value);
+string tls = ini.TryFind("server:tls")?.Value ?? "false";
+```
+
+Match constants and guards directly on `Value` — `{ Value: "30" }`, or
+`{ Value: var v } when int.Parse(v) > 30`. The instance `IsSome` / `IsNone` properties are not callable from
+C#, so reach for `is null` and `is not null` instead.
+
+A result is a struct: never null, and with no case classes to match on. Test `IsOk` / `IsError` and read the
+payload through the same pattern:
+
+```csharp
+// is pattern
+if (Ini.FromFile("app.ini") is { IsOk: true, ResultValue: var config }) { /* parsed */ }
+
+// switch expression, drilling into the error case
+string report = Ini.FromFile("app.ini") switch
+{
+    { IsOk: true, ResultValue: var config } => $"{config.Count} parameters",
+    { ErrorValue: ParserError.InvalidKey error } => $"bad key: {error.Key}",
+    { ErrorValue: ParserError.InvalidLine error } => $"bad line: {error.Line}",
+    _ => "unreachable"
+};
+
+// ternary
+var result = Ini.FromFile("app.ini");
+Ini ini = result.IsOk ? result.ResultValue : Ini.Empty;
+```
+
+`ResultValue` and `ErrorValue` are unchecked: reading the one the result does not hold yields `default` — a
+`null` document — rather than raising, so test the case before reading the payload.
+
+## Keys
+
+A key is `section:parameter`. Both halves must avoid whitespace and the characters `=`, `:`, `;`, `#`, `[`,
+`]`; the parameter half must be non-empty, the section half may be empty and then means the root section —
+so `x` and `:x` are the same key. Keys are compared `OrdinalIgnoreCase` in both halves, values are not.
+
+| Key               | |
+|-------------------|---------------------------------------|
+| `server:host`     | valid                                 |
+| `host`, `:host`   | valid, the root section               |
+| `server.dev:port` | valid — a dot is part of the name     |
+| `a b`             | `InvalidKey` — whitespace             |
+| `server:`         | `InvalidKey` — empty parameter        |
+| `a:b:c`           | `InvalidKey` — two colons             |
+
+Keys are never trimmed or repaired, so a key the parser would reject is simply absent on the way out:
+`TryFind` gives `None`, `ContainsKey` gives `false`, `Remove` is a no-op and `Find` raises. On the way out a
+root parameter is written in full, so `keys` and enumeration give `:timeout`, not `timeout`.
+
+## File format
+
+| Line             | Meaning                                                      |
+|------------------|--------------------------------------------------------------|
+| `[name]`         | opens a section                                              |
+| `name = value`   | a parameter in the current section                           |
+| `; text`         | comment                                                      |
+| `# text`         | comment                                                      |
+| blank            | ignored                                                      |
+| anything else    | `InvalidLine`                                                |
+
+A value is everything after the first `=`, with surrounding whitespace trimmed, so it may contain `=`, `:`,
+`;`, `#` and may be empty. A later parameter overwrites an earlier one with the same key, and a section may
+be reopened later on. Parsing is a single lazy pass that stops at the first unparsable line — a 10,000-line
+file with a bad line at position 3 reads three lines.
+
+Sections do not nest in the file: `[server.dev]` is a name of its own, stored verbatim. The dots only matter
+to `findNested` / `FindNested`, which walk up from `server.dev` to `server` to the root.
 
 ## Rendering
 
-`toLines`, `toString` and `toFile` emit a canonical document: root parameters first with no header, then
-one `[section]` block per section separated by a blank line.
-
-```fsharp
-Ini.fromLines [ "; comment"; "root = 0"; "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
-|> Result.map Ini.toLines
-// [ "root = 0"; ""; "[alpha]"; "x = 1"; ""; "[beta]"; "y = 2" ]
-```
-
-Order is the key order used everywhere else: the root section first, then sections `OrdinalIgnoreCase`
-with a parent ahead of its children, then parameters within a section. An empty value renders as `x =`.
-`toString` joins the lines with `\n`; `toFile` writes them with `File.WriteAllLines`.
+`toLines` / `ToLines` produce a canonical document: root parameters first with no header, then one
+`[section]` block per section separated by a blank line, all in key order — the root section first, then
+sections `OrdinalIgnoreCase` with a parent ahead of its children, then parameters within a section. An empty
+value renders as `x =`.
 
 The output is normalised, not a faithful copy of the input: comments, blank lines, original ordering and
-duplicate entries are not preserved. Values are, so `toFile` followed by `fromFile` gives back an equal
-document.
+duplicate entries are not preserved. Values are, so rendering and parsing back gives an equal document.
 
-## Error handling
+## Layering
 
-Three kinds of failure, kept apart:
+`appendLines` / `appendFile` read a layer over an existing document: the layer's parameters win on a shared
+key, the document's own parameters survive. Parsing always starts at the root section, so load order decides
+which value wins, never which key a line writes to.
 
-- **Content** — an unparsable line or an invalid key. Returned as `Error` of
-  `Result<Ini, string>`: `fromLines`, `fromFile`, `ofSeq`, `appendLines`, `appendFile`, `add`.
-- **A missing key** — an answer, not a failure. `tryFind` / `tryFindNested` return an `option`; `TryFind` /
-  `TryFindNested` return the same option (from C#, a possibly-`null` `FSharpOption<string>` whose `Value`
-  holds the payload — see [Using options from C#](#using-options-from-c)). `find` / `findNested` are their
-  partial counterparts and raise `KeyNotFoundException`.
-- **A bad argument or a filesystem problem** — raised. A `null` key, value, line, sequence, pair member or
-  path raises `ArgumentNullException` naming the parameter; the I/O exceptions of `File.ReadLines` and
-  `File.WriteAllLines` propagate unchanged (`FileNotFoundException`, `DirectoryNotFoundException`, …).
+```fsharp
+let config =
+    Ini.fromFile "defaults.ini"
+    |> Result.bind (Ini.appendFile "app.ini")
+    |> Result.bind (Ini.appendLines [ "[server]"; $"port = {portFromArgs}" ])
+```
 
-Only the `try` functions return an `option`, and only content failures return a `Result` — the signature
-of `add` or `fromLines` already says the call may not produce an `Ini`.
+## Sections
+
+`section` takes one section as a standalone document, `removeSection` is its complement, and `sections`
+lists the distinct names (`""` for the root). Dotted children are sections of their own, so removing
+`server` leaves `server.dev` in place — remove it by name, or fold over `sections` to drop a whole subtree.
+
+```fsharp
+ini |> Ini.section "server" |> Ini.toLines   // seq [ "[server]"; "host = localhost"; "port = 8080" ]
+```
+
+## Errors
+
+Content failures are returned, not raised:
+
+```fsharp
+type ParserError =
+    | InvalidKey of Key: string   // Add / Create, Ini.add / Ini.ofSeq
+    | InvalidLine of Line: string // FromLines / FromFile / AppendLines / AppendFile
+```
+
+Each case carries the offending text verbatim. A missing key is an answer rather than a failure:
+`tryFind` / `tryFindNested` return an option, `find` / `findNested` are their partial counterparts and
+raise `KeyNotFoundException`. A `null` argument and a filesystem problem are raised.
+
+From C# the cases are nested types that carry their payload under the field name — `((ParserError.InvalidKey)err).Key`
+and `((ParserError.InvalidLine)err).Line` — with `IsInvalidKey` / `IsInvalidLine` to test one and
+`NewInvalidKey` / `NewInvalidLine` to build one.
 
 ## API
 
-The `Ini` is always the last parameter of the F# functions, so they compose with `|>`.
+The type and the module carry the same operations; the module functions take the document last.
 
-| F# | C# | |
-| --- | --- | --- |
-| `Ini.empty` | `Ini.Empty` | the empty document |
-| `Ini.fromLines : string seq -> Result<Ini, string>` | `Ini.FromLines` | parse lines |
-| `Ini.fromFile : string -> Result<Ini, string>` | `Ini.FromFile` | parse a file |
-| `Ini.ofSeq : (string * string) seq -> Result<Ini, string>` | `Ini.Create` | build from pairs |
-| `Ini.appendLines : string seq -> Ini -> Result<Ini, string>` | `AppendLines` | layer lines over a document |
-| `Ini.appendFile : string -> Ini -> Result<Ini, string>` | `AppendFile` | layer a file over a document |
-| `Ini.add : string -> string -> Ini -> Result<Ini, string>` | `Add` | add or overwrite one key |
-| `Ini.remove : string -> Ini -> Ini` | `Remove` | remove one key; no-op when absent |
-| `Ini.tryFind : string -> Ini -> string option` | `TryFind` | exact lookup |
-| `Ini.tryFindNested : string -> Ini -> string option` | `TryFindNested` | lookup walking up the hierarchy |
-| `Ini.find : string -> Ini -> string` | `Find` | exact lookup, raises |
-| `Ini.findNested : string -> Ini -> string` | `FindNested` | nested lookup, raises |
-| `Ini.containsKey : string -> Ini -> bool` | `ContainsKey` | |
-| `Ini.isEmpty : Ini -> bool` | `IsEmpty` | |
-| `Ini.count : Ini -> int` | `Count` | number of parameters |
-| `Ini.keys : Ini -> string seq` | `Keys` | keys in key order |
-| `Ini.values : Ini -> string seq` | `Values` | values, aligned with `keys` |
-| `Ini.toSeq : Ini -> (string * string) seq` | `KeyValuePairs` | pairs in key order |
-| `Ini.sections : Ini -> string seq` | `Sections` | distinct section names, `""` for the root |
-| `Ini.section : string -> Ini -> Ini` | `Section` | one section as a standalone document |
-| `Ini.toLines : Ini -> string seq` | `ToLines()` | render |
-| `Ini.toString : Ini -> string` | `ToString()` | render, joined with `\n` |
-| `Ini.toFile : string -> Ini -> unit` | `ToFile` | render to a file |
+| `Ini` member                     | `Ini` function                          | Result                        |
+|----------------------------------|-----------------------------------------|-------------------------------|
+| `Ini.Empty`                      | `Ini.empty`                             | `Ini`                         |
+| `Ini.Create pairs`               | `Ini.ofSeq pairs`                       | `Result<Ini, ParserError>`    |
+| `Ini.FromLines lines`            | `Ini.fromLines lines`                   | `Result<Ini, ParserError>`    |
+| `Ini.FromFile path`              | `Ini.fromFile path`                     | `Result<Ini, ParserError>`    |
+| `ini.AppendLines lines`          | `Ini.appendLines lines ini`             | `Result<Ini, ParserError>`    |
+| `ini.AppendFile path`            | `Ini.appendFile path ini`               | `Result<Ini, ParserError>`    |
+| `ini.Add(key, value)`            | `Ini.add key value ini`                 | `Result<Ini, ParserError>`    |
+| `ini.TryFind key`                | `Ini.tryFind key ini`                   | `string option`               |
+| `ini.TryFindNested key`          | `Ini.tryFindNested key ini`             | `string option`               |
+| `ini.Find key`                   | `Ini.find key ini`                      | `string`                      |
+| `ini.FindNested key`             | `Ini.findNested key ini`                | `string`                      |
+| `ini.Remove key`                 | `Ini.remove key ini`                    | `Ini`                         |
+| `ini.ContainsKey key`            | `Ini.containsKey key ini`               | `bool`                        |
+| `ini.IsEmpty`                    | `Ini.isEmpty ini`                       | `bool`                        |
+| `ini.Count`                      | `Ini.count ini`                         | `int`                         |
+| `ini.Keys`                       | `Ini.keys ini`                          | `seq<string>`                 |
+| `ini.Values`                     | `Ini.values ini`                        | `seq<string>`                 |
+| `ini.KeyValuePairs`              | `Ini.toSeq ini`                         | pairs, in key order           |
+| `ini.Sections`                   | `Ini.sections ini`                      | `seq<string>`                 |
+| `ini.Section name`               | `Ini.section name ini`                  | `Ini`                         |
+| `ini.RemoveSection name`         | `Ini.removeSection name ini`            | `Ini`                         |
+| `ini.ToLines()`                  | `Ini.toLines ini`                       | `seq<string>`                 |
+| `ini.ToFile path`                | `Ini.toFile path ini`                   | `unit`                        |
+| `ini.ToString()`                 | `Ini.toString ini`                      | `string`                      |
 
-`Ini` implements `IEnumerable<KeyValuePair<string, string>>`, so C# can `foreach` and LINQ over it
-directly, and `Ini.Create(ini)` round-trips a document.
-
-Pairs come in the shape the factory takes: `KeyValuePair` in C#, matching `KeyValuePairs`, and tuples in
-F#, so `ini |> Ini.toSeq |> Ini.ofSeq` round-trips as well.
-
-`Section` matches the name case-insensitively, excludes dotted children, keeps the keys as they are in the
-original document, and renders back to a valid standalone document:
-
-```fsharp
-ini |> Ini.section "alpha" |> Ini.toLines   // [ "[alpha]"; "x = 1" ]
-```
-
-## Not supported yet
-
-- **Escaping.** There is no escape character, so a value cannot carry a newline, or leading or trailing
-  whitespace.
-- **Inline comments.** `x = 1 ; note` is the value `1 ; note`. Stripping `;` and `#` from values without
-  an escape mechanism would make those characters impossible to write, and they occur in real values
-  (`separators = ;#`, `fragment = https://example.com/doc#section`), so inline comments wait on escaping.
-- **Comment preservation.** Comments and blank lines are read and discarded, not carried through a
-  round-trip.
-- **Line numbers in parse errors.** The message names the line's text, not its position.
+`Ini` implements `IEnumerable<KeyValuePair<string, string>>`, `IEquatable<Ini>` and `IComparable<Ini>`:
+documents are compared by keys and then values, and equal documents have equal hash codes. Name case,
+declaration order, comments and blank lines are not taken into account.
 
 ## Build
 

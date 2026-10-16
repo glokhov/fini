@@ -67,7 +67,7 @@ type internal Section =
         member m.CompareTo(obj) =
             match obj with
             | :? Section as other -> m.CompareTo other
-            | _ -> invalidArg "obj" "Object is not a Name."
+            | _ -> invalidArg (nameof obj) "Object is not a Name."
 
     override m.Equals(obj) =
         match obj with
@@ -101,7 +101,7 @@ type internal Key =
         member m.CompareTo(obj) =
             match obj with
             | :? Key as other -> m.CompareTo other
-            | _ -> invalidArg "obj" "Object is not a Key."
+            | _ -> invalidArg (nameof obj) "Object is not a Key."
 
     override m.Equals(obj) =
         match obj with
@@ -133,6 +133,10 @@ module internal Pair =
 [<RequireQualifiedAccess>]
 module internal Tuple =
     let inline stringKey (pair: KeyValuePair<Key, string>) = pair.Key.Path, pair.Value
+
+type ParserError =
+    | InvalidKey of Key: string
+    | InvalidLine of Line: string
 
 [<AutoOpen>]
 module internal Parser =
@@ -189,13 +193,13 @@ module internal Parser =
         | ParseComment comment -> Ok comment
         | ParseSection section -> Ok section
         | ParseParameter parameter -> Ok parameter
-        | _ -> Error $"Cannot parse line: %s{text}."
+        | _ -> InvalidLine text |> Error
 
     let tryParseKey key =
         match key with
         | ParseSectionKey key -> Ok key
         | ParseParameterKey key -> Ok key
-        | _ -> Error $"Invalid key: %s{key}."
+        | _ -> InvalidKey key |> Error
 
     let tryParseKeyValue (pair: KeyValuePair<string, string>) =
         match pair.Key |> tryParseKey with
@@ -309,6 +313,13 @@ type Ini =
             |> Seq.map Pair.toTuple
             |> Map.ofSeq }
 
+    member m.RemoveSection name =
+        { Map =
+            m.Map
+            |> Seq.filter (fun pair -> Pair.sectionNameEquals pair name |> not)
+            |> Seq.map Pair.toTuple
+            |> Map.ofSeq }
+
     member m.ToLines() =
         seq {
             let mutable written = false
@@ -383,6 +394,8 @@ module Ini =
     let sections (ini: Ini) = ini.Sections
 
     let section name (ini: Ini) = ini.Section name
+
+    let removeSection name (ini: Ini) = ini.RemoveSection name
 
     let toSeq (ini: Ini) = ini.Map |> Seq.map Tuple.stringKey
 
