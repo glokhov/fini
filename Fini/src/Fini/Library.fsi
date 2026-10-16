@@ -125,30 +125,31 @@ type Ini =
     ///
     /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
     /// section.</param>
-    /// <param name="value">When this method returns, the value found, or null if there is none.</param>
     ///
-    /// <returns>True if the key is present.</returns>
+    /// <returns>The value found, as <c>Some</c>, or <c>None</c> if the key is absent. From C#, that is a
+    /// non-null <c>FSharpOption&lt;string&gt;</c> whose <c>Value</c> holds the payload, or <c>null</c>.</returns>
     ///
     /// <remarks>Does not walk the section hierarchy; see
-    /// <see cref="M:Fini.Ini.TryFindNested(System.String,System.String@)"/>.</remarks>
+    /// <see cref="M:Fini.Ini.TryFindNested(System.String)"/>.</remarks>
     ///
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    member TryFind: key: string * value: byref<string> -> bool
+    member TryFind: key: string -> string option
 
     /// <summary>Looks up a key, walking up the section hierarchy.</summary>
     ///
     /// <param name="key">The key to find, as <c>section:parameter</c> or <c>parameter</c> for the root
     /// section.</param>
-    /// <param name="value">When this method returns, the value found, or null if there is none.</param>
     ///
-    /// <returns>True if the parameter is present in the given section or in one of its ancestors.</returns>
+    /// <returns>The value found, as <c>Some</c>, or <c>None</c> if the parameter is absent from the given
+    /// section and every one of its ancestors. From C#, that is a non-null
+    /// <c>FSharpOption&lt;string&gt;</c> whose <c>Value</c> holds the payload, or <c>null</c>.</returns>
     ///
     /// <remarks>A dotted section name is read as a hierarchy: the given section is tried first, then each
     /// ancestor in turn, then the root. So <c>server.dev:host</c> falls back to <c>server:host</c> and then
     /// to <c>:host</c>.</remarks>
     ///
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is null.</exception>
-    member TryFindNested: key: string * value: byref<string> -> bool
+    member TryFindNested: key: string -> string option
 
     /// <summary>Looks up an exact key, raising if it is absent.</summary>
     ///

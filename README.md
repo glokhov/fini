@@ -5,6 +5,13 @@
 
 A simple, **immutable** INI parser for .NET, written in F#.
 
+> [!WARNING]
+> Version 3 is a complete rewrite of version 2 and is **not** source- or binary-compatible with it. The
+> document model and the entire API surface have changed — key shape (`section:parameter` instead of
+> separate section and key arguments), error handling (`Result` instead of `option`/silent fallback), and
+> a first-class C# surface are all new. Upgrading from version 2 means migrating code, not just bumping a
+> package version.
+
 An `Ini` is a value: every operation that changes a document returns a new one, the original is untouched,
 and two documents can be compared with `=`. Parsing and key validation report failure as
 `Result<Ini, string>` rather than by raising. The API is usable from both F# and C#.
@@ -63,8 +70,18 @@ if (result.IsError)
 
 var ini = result.ResultValue;
 
-ini.TryFind("server:host", out var host);                   // true, "localhost"
-ini.TryFindNested("server.dev:host", out var inherited);    // true, "localhost"
+var host = ini.TryFind("server:host") switch                // "localhost"
+{
+    { Value: var value } => value,
+    null => null
+};
+
+var inherited = ini.TryFindNested("server.dev:host") switch // "localhost"
+{
+    { Value: var value } => value,
+    null => null
+};
+
 var port = ini.Find("server.dev:port");                     // "5000"
 
 var updated = ini.Add("server:port", "8080").ResultValue;
@@ -78,9 +95,40 @@ foreach (var (key, value) in updated)
 Files round-trip:
 
 ```fsharp
-Ini.fromFile "settings.ini"
-|> Result.map (Ini.add "server:port" "8080")
+Ini.fromFile "settings.ini" |> Result.map (Ini.add "server:port" "8080")
 ```
+
+## Using options from C#
+
+`TryFind` and `TryFindNested` have one member signature for both languages: `key: string -> string option`.
+From C#, `string option` is `FSharpOption<string>` — `None` is `null` and `Some value` is a non-null
+instance whose `Value` holds the payload. A property pattern in a switch expression reads naturally either
+way:
+
+```csharp
+// Unwrap to a value, substituting a default on a miss
+var host = ini.TryFind("server:host") switch
+{
+    { Value: var value } => value,
+    null => "localhost"
+};
+
+// Branch on presence without needing the value
+var greeting = ini.TryFind("server:host") switch
+{
+    { Value: var value } => $"Connecting to {value}",
+    null => "No host configured"
+};
+
+// Just testing for presence
+if (ini.TryFind("server:host") is { Value: var host2 })
+{
+    Console.WriteLine(host2);
+}
+```
+
+`Find` / `FindNested` stay plain C# methods returning `string` — reach for them instead when a missing key
+is a bug, not a case to handle.
 
 ## The document model
 
@@ -224,9 +272,10 @@ Three kinds of failure, kept apart:
 
 - **Content** — an unparsable line or an invalid key. Returned as `Error` of
   `Result<Ini, string>`: `fromLines`, `fromFile`, `ofSeq`, `appendLines`, `appendFile`, `add`.
-- **A missing key** — an answer, not a failure. `tryFind` / `tryFindNested` return an `option`
-  (`TryFind` / `TryFindNested` with an `out` parameter in C#). `find` / `findNested` are their partial
-  counterparts and raise `KeyNotFoundException`.
+- **A missing key** — an answer, not a failure. `tryFind` / `tryFindNested` return an `option`; `TryFind` /
+  `TryFindNested` return the same option (from C#, a possibly-`null` `FSharpOption<string>` whose `Value`
+  holds the payload — see [Using options from C#](#using-options-from-c)). `find` / `findNested` are their
+  partial counterparts and raise `KeyNotFoundException`.
 - **A bad argument or a filesystem problem** — raised. A `null` key, value, line, sequence, pair member or
   path raises `ArgumentNullException` naming the parameter; the I/O exceptions of `File.ReadLines` and
   `File.WriteAllLines` propagate unchanged (`FileNotFoundException`, `DirectoryNotFoundException`, …).
@@ -248,8 +297,8 @@ The `Ini` is always the last parameter of the F# functions, so they compose with
 | `Ini.appendFile : string -> Ini -> Result<Ini, string>` | `AppendFile` | layer a file over a document |
 | `Ini.add : string -> string -> Ini -> Result<Ini, string>` | `Add` | add or overwrite one key |
 | `Ini.remove : string -> Ini -> Ini` | `Remove` | remove one key; no-op when absent |
-| `Ini.tryFind : string -> Ini -> string option` | `TryFind(key, out value)` | exact lookup |
-| `Ini.tryFindNested : string -> Ini -> string option` | `TryFindNested(key, out value)` | lookup walking up the hierarchy |
+| `Ini.tryFind : string -> Ini -> string option` | `TryFind` | exact lookup |
+| `Ini.tryFindNested : string -> Ini -> string option` | `TryFindNested` | lookup walking up the hierarchy |
 | `Ini.find : string -> Ini -> string` | `Find` | exact lookup, raises |
 | `Ini.findNested : string -> Ini -> string` | `FindNested` | nested lookup, raises |
 | `Ini.containsKey : string -> Ini -> bool` | `ContainsKey` | |

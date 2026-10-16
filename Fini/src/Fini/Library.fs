@@ -3,30 +3,28 @@
 open System
 open System.Collections
 open System.Collections.Generic
-open System.Diagnostics.CodeAnalysis
 open System.IO
-open System.Runtime.InteropServices
 open System.Text.RegularExpressions
 
 [<AutoOpen>]
 module internal Guards =
-    let inline requireNonNull paramName (value: 'T) =
-        ArgumentNullException.ThrowIfNull(value, paramName)
-        value
+    let inline requireNonNull paramName (argument: 'T) =
+        ArgumentNullException.ThrowIfNull(argument, paramName)
+        argument
 
-    let inline requireNonNullSeq paramName (value: 'T seq) =
-        ArgumentNullException.ThrowIfNull(value, paramName)
-        value
+    let inline requireNonNullSeq paramName (argument: 'T seq) =
+        ArgumentNullException.ThrowIfNull(argument, paramName)
+        argument
 
-    let inline requireNonNullPair paramName (pair: KeyValuePair<'K, 'V>) =
-        ArgumentNullException.ThrowIfNull(pair.Key, $"{paramName}.{nameof pair.Key}")
-        ArgumentNullException.ThrowIfNull(pair.Value, $"{paramName}.{nameof pair.Value}")
-        pair
+    let inline requireNonNullPair paramName (argument: KeyValuePair<'K, 'V>) =
+        ArgumentNullException.ThrowIfNull(argument.Key, $"{paramName}.{nameof argument.Key}")
+        ArgumentNullException.ThrowIfNull(argument.Value, $"{paramName}.{nameof argument.Value}")
+        argument
 
-    let inline requireNonNullTuple paramName (tuple: 'K * 'V) =
-        ArgumentNullException.ThrowIfNull(fst tuple, $"{paramName}.{nameof fst}")
-        ArgumentNullException.ThrowIfNull(snd tuple, $"{paramName}.{nameof snd}")
-        tuple
+    let inline requireNonNullTuple paramName (argument: 'K * 'V) =
+        ArgumentNullException.ThrowIfNull(fst argument, $"{paramName}.{nameof fst}")
+        ArgumentNullException.ThrowIfNull(snd argument, $"{paramName}.{nameof snd}")
+        argument
 
 [<AutoOpen>]
 module internal Enumerator =
@@ -126,15 +124,15 @@ module internal Key =
 
 [<RequireQualifiedAccess>]
 module internal Pair =
-    let inline stringKey (pair: KeyValuePair<Key, _>) = KeyValuePair<string, _>(pair.Key.Path, pair.Value)
+    let inline stringKey (pair: KeyValuePair<Key, string>) = KeyValuePair(pair.Key.Path, pair.Value)
 
-    let inline toTuple (pair: KeyValuePair<Key, _>) = pair.Key, pair.Value
+    let inline toTuple (pair: KeyValuePair<Key, string>) = pair.Key, pair.Value
 
-    let inline sectionNameEquals (pair: KeyValuePair<Key, _>) section = comparer.Equals(pair.Key.Section.Name, section)
+    let inline sectionNameEquals (pair: KeyValuePair<Key, string>) section = comparer.Equals(pair.Key.Section.Name, section)
 
 [<RequireQualifiedAccess>]
 module internal Tuple =
-    let inline stringKey (pair: KeyValuePair<Key, _>) = pair.Key.Path, pair.Value
+    let inline stringKey (pair: KeyValuePair<Key, string>) = pair.Key.Path, pair.Value
 
 [<AutoOpen>]
 module internal Parser =
@@ -265,18 +263,9 @@ type Ini =
         | Ok key -> Ok { Map = Map.add key (value |> requireNonNull (nameof value)) m.Map }
         | Error err -> Error err
 
-    member internal m.TryFindInternal(key) = m.Map.TryFind(key |> Key.create)
+    member m.TryFind(key) = m.Map.TryFind(key |> Key.create)
 
-    member m.TryFind(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
-        match key |> m.TryFindInternal with
-        | Some found ->
-            value <- found
-            true
-        | None ->
-            value <- Unchecked.defaultof<_>
-            false
-
-    member internal m.TryFindNestedInternal(key) =
+    member m.TryFindNested(key) =
         let key = key |> Key.create
 
         let rec loop section =
@@ -292,19 +281,10 @@ type Ini =
 
         loop key.Section
 
-    member m.TryFindNested(key, [<Out; MaybeNullWhen(false)>] value: byref<string>) =
-        match key |> m.TryFindNestedInternal with
-        | Some found ->
-            value <- found
-            true
-        | None ->
-            value <- Unchecked.defaultof<_>
-            false
-
     member m.Find(key) = Map.find (key |> Key.create) m.Map
 
     member m.FindNested(key) =
-        match key |> m.TryFindNestedInternal with
+        match key |> m.TryFindNested with
         | Some value -> value
         | None -> raise (KeyNotFoundException())
 
@@ -382,9 +362,9 @@ module Ini =
 
     let add key value (ini: Ini) = ini.Add(key, value)
 
-    let tryFind key (ini: Ini) = ini.TryFindInternal key
+    let tryFind key (ini: Ini) = ini.TryFind key
 
-    let tryFindNested key (ini: Ini) = ini.TryFindNestedInternal key
+    let tryFindNested key (ini: Ini) = ini.TryFindNested key
 
     let find key (ini: Ini) = ini.Find key
 

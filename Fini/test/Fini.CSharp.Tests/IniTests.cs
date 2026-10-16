@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.FSharp.Core;
 using Xunit;
 
 namespace Fini.CSharp.Tests;
@@ -15,6 +16,13 @@ public class IniTests
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue : null);
         return result.ResultValue;
     }
+
+    private static string Value(FSharpOption<string> option) =>
+        option switch
+        {
+            { Value: var value } => value,
+            null => null
+        };
 
     // ------------------------------------------------------------ empty
 
@@ -31,8 +39,8 @@ public class IniTests
     public void EmptyFindsNothing()
     {
         Assert.False(Ini.Empty.ContainsKey("alpha:x"));
-        Assert.False(Ini.Empty.TryFind("alpha:x", out _));
-        Assert.False(Ini.Empty.TryFindNested("alpha:x", out _));
+        Assert.Null(Ini.Empty.TryFind("alpha:x"));
+        Assert.Null(Ini.Empty.TryFindNested("alpha:x"));
     }
 
     // ------------------------------------------------------------ create
@@ -82,17 +90,15 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1");
 
-        Assert.True(ini.TryFind("alpha:x", out var value));
-        Assert.Equal("1", value);
+        Assert.Equal("1", Value(ini.TryFind("alpha:x")));
     }
 
     [Fact]
-    public void TryFindClearsTheOutParameterOnMiss()
+    public void TryFindReturnsNullOnMiss()
     {
         var ini = Create("[alpha]", "x = 1");
 
-        Assert.False(ini.TryFind("alpha:nope", out var value));
-        Assert.Null(value);
+        Assert.Null(ini.TryFind("alpha:nope"));
     }
 
     [Theory]
@@ -103,8 +109,7 @@ public class IniTests
         var ini = Create("[alpha]", "x = 1");
 
         Assert.True(ini.ContainsKey(key));
-        Assert.True(ini.TryFind(key, out var value));
-        Assert.Equal("1", value);
+        Assert.Equal("1", Value(ini.TryFind(key)));
     }
 
     [Fact]
@@ -113,8 +118,7 @@ public class IniTests
         var ini = Create("x = 1");
 
         Assert.True(ini.ContainsKey("x"));
-        Assert.True(ini.TryFind("x", out var value));
-        Assert.Equal("1", value);
+        Assert.Equal("1", Value(ini.TryFind("x")));
     }
 
     [Theory]
@@ -125,8 +129,8 @@ public class IniTests
     {
         var ini = Create("x = 1");
 
-        Assert.False(ini.TryFind(key, out _));
-        Assert.False(ini.TryFindNested(key, out _));
+        Assert.Null(ini.TryFind(key));
+        Assert.Null(ini.TryFindNested(key));
         Assert.False(ini.ContainsKey(key));
         Assert.Throws<KeyNotFoundException>(() => ini.Find(key));
         Assert.Throws<KeyNotFoundException>(() => ini.FindNested(key));
@@ -140,14 +144,11 @@ public class IniTests
     {
         var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
 
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:y", out var nearest));
-        Assert.Equal("2", nearest);
+        Assert.Equal("2", Value(ini.TryFindNested("alpha.beta.gamma:y")));
 
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:x", out var parent));
-        Assert.Equal("1", parent);
+        Assert.Equal("1", Value(ini.TryFindNested("alpha.beta.gamma:x")));
 
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:root", out var root));
-        Assert.Equal("0", root);
+        Assert.Equal("0", Value(ini.TryFindNested("alpha.beta.gamma:root")));
     }
 
     [Fact]
@@ -155,17 +156,15 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = alpha", "[alpha.beta]", "x = beta");
 
-        Assert.True(ini.TryFindNested("alpha.beta:x", out var value));
-        Assert.Equal("beta", value);
+        Assert.Equal("beta", Value(ini.TryFindNested("alpha.beta:x")));
     }
 
     [Fact]
-    public void TryFindNestedClearsTheOutParameterOnMiss()
+    public void TryFindNestedReturnsNullOnMiss()
     {
         var ini = Create("[alpha]", "x = 1");
 
-        Assert.False(ini.TryFindNested("alpha.beta:nope", out var value));
-        Assert.Null(value);
+        Assert.Null(ini.TryFindNested("alpha.beta:nope"));
     }
 
     // ------------------------------------------------------------ append
@@ -190,8 +189,7 @@ public class IniTests
         var result = ini.AppendLines(["[alpha]", "x = 2"]);
 
         Assert.True(result.IsOk);
-        Assert.True(result.ResultValue.TryFind("alpha:x", out var value));
-        Assert.Equal("2", value);
+        Assert.Equal("2", Value(result.ResultValue.TryFind("alpha:x")));
         Assert.Equal(1, result.ResultValue.Count);
     }
 
@@ -227,8 +225,7 @@ public class IniTests
 
         Assert.True(result.IsOk);
         Assert.Equal(1, result.ResultValue.Count);
-        Assert.True(result.ResultValue.TryFind("alpha:x", out var value));
-        Assert.Equal("2", value);
+        Assert.Equal("2", Value(result.ResultValue.TryFind("alpha:x")));
     }
 
     [Theory]
@@ -264,8 +261,7 @@ public class IniTests
         var result = Ini.Empty.Add("x", value);
 
         Assert.True(result.IsOk);
-        Assert.True(result.ResultValue.TryFind("x", out var found));
-        Assert.Equal(value, found);
+        Assert.Equal(value, Value(result.ResultValue.TryFind("x")));
     }
 
     [Fact]
@@ -371,9 +367,8 @@ public class IniTests
         var alpha = ini.Section("alpha");
 
         Assert.Equal(["alpha:x"], alpha.Keys);
-        Assert.True(alpha.TryFind("alpha:x", out var value));
-        Assert.Equal("1", value);
-        Assert.False(alpha.TryFind("x", out _));
+        Assert.Equal("1", Value(alpha.TryFind("alpha:x")));
+        Assert.Null(alpha.TryFind("x"));
     }
 
     [Fact]
