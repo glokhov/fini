@@ -6,4 +6,6 @@
 bin
 obj
 
+artifacts
+
 *.user
