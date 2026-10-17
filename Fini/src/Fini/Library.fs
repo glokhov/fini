@@ -16,7 +16,7 @@ module internal Guards =
         ArgumentNullException.ThrowIfNull(argument, paramName)
         argument
 
-    let inline requireNonNullPair paramName (argument: KeyValuePair<'K, 'V>) =
+    let inline requireNonNullKeyValue paramName (argument: KeyValuePair<'K, 'V>) =
         ArgumentNullException.ThrowIfNull(argument.Key, $"{paramName}.{nameof argument.Key}")
         ArgumentNullException.ThrowIfNull(argument.Value, $"{paramName}.{nameof argument.Value}")
         argument
@@ -36,6 +36,20 @@ module internal Enumerator =
 
 [<AutoOpen>]
 module internal String =
+    [<Literal>]
+    let Empty = ""
+
+    [<Literal>]
+    let Separator = ":"
+
+    [<Literal>]
+    let Colon = ':'
+
+    [<Literal>]
+    let Dot = '.'
+
+    let comparer = StringComparer.OrdinalIgnoreCase
+
     let inline indexOf (c: char) (s: string) = s.IndexOf c
 
     let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
@@ -46,35 +60,31 @@ module internal File =
 
     let inline writeLines path (lines: string seq) = File.WriteAllLines(path, lines)
 
-[<AutoOpen>]
-module internal OrdinalIgnoreCase =
-    let comparer = StringComparer.OrdinalIgnoreCase
-
 type internal Comment = string
 
 [<CustomComparison; CustomEquality>]
 type internal Section =
     { Name: string }
 
-    member m.CompareTo(other) =
+    member m.CompareTo other =
         match m.Name, other.Name with
-        | "", "" -> 0
-        | "", _ -> -1
-        | _, "" -> 1
+        | Empty, Empty -> 0
+        | Empty, _ -> -1
+        | _, Empty -> 1
         | _ -> comparer.Compare(m.Name, other.Name)
 
     interface IComparable with
-        member m.CompareTo(obj) =
+        member m.CompareTo obj =
             match obj with
             | :? Section as other -> m.CompareTo other
-            | _ -> invalidArg (nameof obj) "Object is not a Name."
+            | _ -> invalidArg (nameof obj) "Object is not a Section."
 
     override m.Equals(obj) =
         match obj with
         | :? Section as other -> comparer.Equals(m.Name, other.Name)
         | _ -> false
 
-    override m.GetHashCode() = comparer.GetHashCode(m.Name)
+    override m.GetHashCode() = comparer.GetHashCode m.Name
 
 type internal Parameter = { Key: string; Value: string }
 
@@ -88,51 +98,37 @@ type internal Line =
 type internal Key =
     private
         { Section: Section
-          Param: string }
+          Parameter: string }
 
-    member m.Path = m.Section.Name + ":" + m.Param
+    member m.Path = m.Section.Name + Separator + m.Parameter
 
-    member m.CompareTo(other) =
-        match m.Section.CompareTo(other.Section) with
-        | 0 -> comparer.Compare(m.Param, other.Param)
+    member m.CompareTo other =
+        match m.Section.CompareTo other.Section with
+        | 0 -> comparer.Compare(m.Parameter, other.Parameter)
         | result -> result
 
     interface IComparable with
-        member m.CompareTo(obj) =
+        member m.CompareTo obj =
             match obj with
             | :? Key as other -> m.CompareTo other
             | _ -> invalidArg (nameof obj) "Object is not a Key."
 
     override m.Equals(obj) =
         match obj with
-        | :? Key as other -> comparer.Equals(m.Section, other.Section) && comparer.Equals(m.Param, other.Param)
+        | :? Key as other -> m.Section.Equals other.Section && comparer.Equals(m.Parameter, other.Parameter)
         | _ -> false
 
     override m.GetHashCode() =
-        HashCode.Combine(comparer.GetHashCode(m.Section), comparer.GetHashCode(m.Param))
+        HashCode.Combine(m.Section.GetHashCode(), comparer.GetHashCode m.Parameter)
 
 [<RequireQualifiedAccess>]
 module internal Key =
     let inline create key =
-        match key |> requireNonNull (nameof key) |> indexOf ':' with
-        | -1 -> { Section = { Name = "" }; Param = key }
+        match requireNonNull (nameof key) key |> indexOf Colon with
+        | -1 -> { Section = { Name = Empty }; Parameter = key }
         | index ->
             { Section = { Name = key[.. index - 1] }
-              Param = key[index + 1 ..] }
-
-    let inline path (key: Key) = key.Path
-
-[<RequireQualifiedAccess>]
-module internal Pair =
-    let inline stringKey (pair: KeyValuePair<Key, string>) = KeyValuePair(pair.Key.Path, pair.Value)
-
-    let inline toTuple (pair: KeyValuePair<Key, string>) = pair.Key, pair.Value
-
-    let inline sectionNameEquals (pair: KeyValuePair<Key, string>) section = comparer.Equals(pair.Key.Section.Name, section)
-
-[<RequireQualifiedAccess>]
-module internal Tuple =
-    let inline stringKey (pair: KeyValuePair<Key, string>) = pair.Key.Path, pair.Value
+              Parameter = key[index + 1 ..] }
 
 type ParserError =
     | InvalidKey of Key: string
@@ -179,12 +175,12 @@ module internal Parser =
 
     let private (|ParseSectionKey|_|) text =
         match text with
-        | ParseRegex sectionKeyRegex [ section; parameter ] -> ValueSome { Section = { Name = section }; Param = parameter }
+        | ParseRegex sectionKeyRegex [ section; parameter ] -> ValueSome { Section = { Name = section }; Parameter = parameter }
         | _ -> ValueNone
 
     let private (|ParseParameterKey|_|) text =
         match text with
-        | ParseRegex parameterKeyRegex [ parameter ] -> ValueSome { Section = { Name = "" }; Param = parameter }
+        | ParseRegex parameterKeyRegex [ parameter ] -> ValueSome { Section = { Name = Empty }; Parameter = parameter }
         | _ -> ValueNone
 
     let tryParseLine text =
@@ -202,7 +198,7 @@ module internal Parser =
         | _ -> InvalidKey key |> Error
 
     let tryParseKeyValue (pair: KeyValuePair<string, string>) =
-        match pair.Key |> tryParseKey with
+        match tryParseKey pair.Key with
         | Ok key -> Ok(key, pair.Value)
         | Error err -> Error err
 
@@ -211,42 +207,35 @@ module internal Parser =
         | Ok key -> Ok(key, snd tuple)
         | Error err -> Error err
 
-[<StructuralComparison; StructuralEquality>]
-type Ini =
-    private
-        { Map: Map<Key, string> }
+[<RequireQualifiedAccess>]
+module internal KeyValuePair =
+    let inline toStringKey (kvp: KeyValuePair<Key, string>) = KeyValuePair(kvp.Key.Path, kvp.Value)
 
-    static let empty = { Map = Map.empty }
+[<RequireQualifiedAccess>]
+module internal Tuple =
+    let inline toStringKey (kvp: KeyValuePair<Key, string>) = kvp.Key.Path, kvp.Value
 
-    static member Empty = empty
-
-    static member internal Create(pairs, requireNonNull, tryParse) =
-        use enumerator = pairs |> requireNonNullSeq (nameof pairs) |> getEnumerator
+[<RequireQualifiedAccess>]
+module internal Map =
+    let create pairs requireNonNullPair tryParsePair =
+        use enumerator = requireNonNullSeq (nameof pairs) pairs |> getEnumerator
 
         let rec loop map =
             if moveNext enumerator |> not then
-                Ok { Map = map }
+                Ok map
             else
-                match current enumerator |> requireNonNull (nameof pairs) |> tryParse with
+                match current enumerator |> requireNonNullPair (nameof pairs) |> tryParsePair with
                 | Error err -> Error err
                 | Ok(key, value) -> loop (Map.add key value map)
 
-        loop empty.Map
+        loop Map.empty
 
-    static member Create(pairs) = Ini.Create(pairs, requireNonNullPair, tryParseKeyValue)
-
-    static member FromFile(path) = path |> readLines |> empty.AppendLines
-
-    static member FromLines(lines) = lines |> empty.AppendLines
-
-    member m.AppendFile(path) = path |> readLines |> m.AppendLines
-
-    member m.AppendLines(lines) =
-        use enumerator = lines |> requireNonNullSeq (nameof lines) |> getEnumerator
+    let appendLines lines map =
+        use enumerator = requireNonNullSeq (nameof lines) lines |> getEnumerator
 
         let rec loop map section =
             if moveNext enumerator |> not then
-                Ok { Map = map }
+                Ok map
             else
                 match current enumerator |> requireNonNull (nameof lines) |> tryParseLine with
                 | Error err -> Error err
@@ -256,96 +245,96 @@ type Ini =
                     | Comment _ -> loop map section
                     | Section { Name = name } -> loop map name
                     | Parameter { Key = key; Value = value } ->
-                        loop (Map.add { Section = { Name = section }; Param = key } value map) section
+                        loop (Map.add { Section = { Name = section }; Parameter = key } value map) section
 
-        loop m.Map ""
+        loop map Empty
 
-    member m.IsEmpty = m.Map.IsEmpty
+    let add key value map =
+        let key = requireNonNull (nameof key) key
+        let value = requireNonNull (nameof value) value
 
-    member m.Add(key, value) =
-        match key |> requireNonNull (nameof key) |> tryParseKey with
-        | Ok key -> Ok { Map = Map.add key (value |> requireNonNull (nameof value)) m.Map }
+        match tryParseKey key with
+        | Ok key -> Map.add key value map |> Ok
         | Error err -> Error err
 
-    member m.TryFind(key) = m.Map.TryFind(key |> Key.create)
+    let tryFind key map = Map.tryFind (Key.create key) map
 
-    member m.TryFindNested(key) =
-        let key = key |> Key.create
+    let tryFindNested key map =
+        let key = Key.create key
 
         let rec loop section =
-            match Map.tryFind { Section = section; Param = key.Param } m.Map with
+            match Map.tryFind { Section = section; Parameter = key.Parameter } map with
             | Some value -> Some value
             | None ->
                 match section.Name with
-                | "" -> None
+                | Empty -> None
                 | _ ->
-                    match lastIndexOf '.' section.Name with
-                    | -1 -> loop { Name = "" }
+                    match lastIndexOf Dot section.Name with
+                    | -1 -> loop { Name = Empty }
                     | index -> loop { Name = section.Name[.. index - 1] }
 
         loop key.Section
 
-    member m.Find(key) = Map.find (key |> Key.create) m.Map
+    let find key map = Map.find (Key.create key) map
 
-    member m.FindNested(key) =
-        match key |> m.TryFindNested with
+    let findNested key map =
+        match tryFindNested key map with
         | Some value -> value
-        | None -> raise (KeyNotFoundException())
+        | None -> KeyNotFoundException() |> raise
 
-    member m.Remove(key) = { Map = Map.remove (key |> Key.create) m.Map }
-
-    member m.Count = m.Map.Count
-
-    member m.ContainsKey key = Map.containsKey (key |> Key.create) m.Map
-
-    member m.Keys = m.Map.Keys |> Seq.map _.Path
-
-    member m.Values = m.Map.Values :> string seq
-
-    member m.KeyValuePairs = m.Map |> Seq.map Pair.stringKey
-
-    member m.Sections = m.Map |> Seq.map _.Key.Section |> Seq.distinct |> Seq.map _.Name
-
-    member m.Section name =
-        { Map =
-            m.Map
-            |> Seq.filter (fun pair -> Pair.sectionNameEquals pair name)
-            |> Seq.map Pair.toTuple
-            |> Map.ofSeq }
-
-    member m.RemoveSection name =
-        { Map =
-            m.Map
-            |> Seq.filter (fun pair -> Pair.sectionNameEquals pair name |> not)
-            |> Seq.map Pair.toTuple
-            |> Map.ofSeq }
-
-    member m.ToLines() =
+    let toLines (map: Map<Key, string>) =
         seq {
             let mutable written = false
-            let mutable section = ""
+            let mutable section = Empty
 
-            for pair in m.Map do
+            for pair in map do
                 let name = pair.Key.Section.Name
 
-                if name <> "" && comparer.Equals(name, section) |> not then
+                if name <> Empty && comparer.Equals(name, section) |> not then
                     section <- name
 
                     if written then
-                        yield ""
+                        yield Empty
 
                     yield $"[{name}]"
 
                 yield
-                    if pair.Value = "" then
-                        $"{pair.Key.Param} ="
+                    if pair.Value = Empty then
+                        $"{pair.Key.Parameter} ="
                     else
-                        $"{pair.Key.Param} = {pair.Value}"
+                        $"{pair.Key.Parameter} = {pair.Value}"
 
                 written <- true
         }
 
-    member m.ToFile(path) = m.ToLines() |> writeLines path
+    let remove key map = Map.remove (Key.create key) map
+
+    let containsKey key map = Map.containsKey (Key.create key) map
+
+    let keys (map: Map<Key, _>) = Map.keys map |> Seq.map _.Path
+
+    let values map = Map.values map :> string seq
+
+    let sections (map: Map<Key, _>) =
+        map |> Seq.map _.Key.Section |> Seq.distinct |> Seq.map _.Name
+
+    let private sectionPredicate sign name map =
+        map |> Map.filter (fun key _ -> comparer.Equals(key.Section.Name, name) |> sign)
+
+    let section = sectionPredicate id
+
+    let removeSection = sectionPredicate not
+
+    let toFile path map = toLines map |> writeLines path
+
+    let toString map = toLines map |> String.concat Environment.NewLine
+
+[<StructuralComparison; StructuralEquality>]
+type Ini =
+    private
+        { Map: Map<Key, string> }
+
+    member private m.KeyValuePairs = m.Map |> Seq.map KeyValuePair.toStringKey
 
     interface IEnumerable<KeyValuePair<string, string>> with
         member m.GetEnumerator() = m.KeyValuePairs.GetEnumerator()
@@ -353,54 +342,105 @@ type Ini =
     interface IEnumerable with
         member m.GetEnumerator() = (m.KeyValuePairs :> IEnumerable).GetEnumerator()
 
-    override m.ToString() = m.ToLines() |> String.concat "\n"
+    override m.ToString() = Map.toString m.Map
 
 [<RequireQualifiedAccess>]
 module Ini =
-    let empty = Ini.Empty
+    let private ctr map = { Map = map }
 
-    let ofSeq pairs = Ini.Create(pairs, requireNonNullTuple, tryParseTuple)
+    let empty = { Map = Map.empty }
 
-    let fromFile path = Ini.FromFile path
+    let create pairs =
+        Map.create pairs requireNonNullKeyValue tryParseKeyValue |> Result.map ctr
 
-    let fromLines lines = Ini.FromLines lines
+    let ofSeq pairs =
+        Map.create pairs requireNonNullTuple tryParseTuple |> Result.map ctr
 
-    let appendFile path (ini: Ini) = ini.AppendFile path
+    let appendLines lines ini = Map.appendLines lines ini.Map |> Result.map ctr
 
-    let appendLines lines (ini: Ini) = ini.AppendLines lines
+    let appendFile path ini = appendLines (readLines path) ini
 
-    let isEmpty (ini: Ini) = ini.IsEmpty
+    let fromLines lines = appendLines lines empty
 
-    let add key value (ini: Ini) = ini.Add(key, value)
+    let fromFile path = appendFile path empty
 
-    let tryFind key (ini: Ini) = ini.TryFind key
+    let isEmpty ini = Map.isEmpty ini.Map
 
-    let tryFindNested key (ini: Ini) = ini.TryFindNested key
+    let add key value ini = Map.add key value ini.Map |> Result.map ctr
 
-    let find key (ini: Ini) = ini.Find key
+    let tryFind key ini = Map.tryFind key ini.Map
 
-    let findNested key (ini: Ini) = ini.FindNested key
+    let tryFindNested key ini = Map.tryFindNested key ini.Map
 
-    let remove key (ini: Ini) = ini.Remove key
+    let find key ini = Map.find key ini.Map
 
-    let count (ini: Ini) = ini.Count
+    let findNested key ini = Map.findNested key ini.Map
 
-    let containsKey key (ini: Ini) = ini.ContainsKey key
+    let remove key ini = Map.remove key ini.Map |> ctr
 
-    let keys (ini: Ini) = ini.Keys
+    let count ini = Map.count ini.Map
 
-    let values (ini: Ini) = ini.Values
+    let containsKey key ini = Map.containsKey key ini.Map
 
-    let sections (ini: Ini) = ini.Sections
+    let keys ini = Map.keys ini.Map
 
-    let section name (ini: Ini) = ini.Section name
+    let values ini = Map.values ini.Map
 
-    let removeSection name (ini: Ini) = ini.RemoveSection name
+    let sections ini = Map.sections ini.Map
 
-    let toSeq (ini: Ini) = ini.Map |> Seq.map Tuple.stringKey
+    let section name ini = Map.section name ini.Map |> ctr
 
-    let toLines (ini: Ini) = ini.ToLines()
+    let removeSection name ini = Map.removeSection name ini.Map |> ctr
 
-    let toFile path (ini: Ini) = ini.ToFile path
+    let toSeq ini = ini.Map |> Seq.map Tuple.toStringKey
 
-    let toString (ini: Ini) = ini.ToString()
+    let toLines ini = Map.toLines ini.Map
+
+    let toFile path ini = Map.toFile path ini.Map
+
+    let toString ini = Map.toString ini.Map
+
+type Ini with
+    static member Empty = Ini.empty
+
+    static member Create pairs = Ini.create pairs
+
+    static member FromFile path = Ini.fromFile path
+
+    static member FromLines lines = Ini.fromLines lines
+
+    member m.AppendFile path = Ini.appendFile path m
+
+    member m.AppendLines lines = Ini.appendLines lines m
+
+    member m.IsEmpty = Ini.isEmpty m
+
+    member m.Add(key, value) = Ini.add key value m
+
+    member m.TryFind key = Ini.tryFind key m
+
+    member m.TryFindNested key = Ini.tryFindNested key m
+
+    member m.Find key = Ini.find key m
+
+    member m.FindNested key = Ini.findNested key m
+
+    member m.Remove key = Ini.remove key m
+
+    member m.Count = Ini.count m
+
+    member m.ContainsKey key = Ini.containsKey key m
+
+    member m.Keys = Ini.keys m
+
+    member m.Values = Ini.values m
+
+    member m.Sections = Ini.sections m
+
+    member m.Section name = Ini.section name m
+
+    member m.RemoveSection name = Ini.removeSection name m
+
+    member m.ToLines() = Ini.toLines m
+
+    member m.ToFile path = Ini.toFile path m

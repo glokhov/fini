@@ -1289,8 +1289,8 @@ let ``toLines can be enumerated more than once`` () =
 let ``toString joins the lines with a newline`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
 
-    Assert.Equal("root = 0\n\n[alpha]\nx = 1", Ini.toString ini)
-    Assert.Equal(String.concat "\n" (Ini.toLines ini), Ini.toString ini)
+    Assert.Equal($"root = 0{Environment.NewLine}{Environment.NewLine}[alpha]{Environment.NewLine}x = 1", Ini.toString ini)
+    Assert.Equal(String.concat Environment.NewLine (Ini.toLines ini), Ini.toString ini)
 
 [<Fact>]
 let ``ToString no longer leaks the representation`` () =
@@ -1339,10 +1339,10 @@ let ``a value with surrounding whitespace does not survive the round trip`` () =
 
 [<Fact>]
 let ``a value containing a newline renders as something the parser rejects`` () =
-    let ini = added "x" "a\nb" Ini.empty
+    let ini = added "x" $"a{Environment.NewLine}b" Ini.empty
 
-    Assert.Equal<string list>([ "x = a\nb" ], lines ini)
-    Assert.Equal<ParserError>(InvalidLine "b", error (Ini.toLines ini |> Seq.collect (fun line -> line.Split '\n')))
+    Assert.Equal<string list>([ $"x = a{Environment.NewLine}b" ], lines ini)
+    Assert.Equal<ParserError>(InvalidLine "b", error (Ini.toLines ini |> Seq.collect (fun line -> line.Split Environment.NewLine)))
 
 // ---------------------------------------------------------------- toFile
 

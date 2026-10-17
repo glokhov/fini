@@ -12,7 +12,7 @@ public class IniTests
     private static Ini Create(params string[] lines)
     {
         var result = Ini.FromLines(lines);
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
+        Assert.True(result.IsOk, $"{result.ErrorValue}");
         return result.ResultValue;
     }
 
@@ -598,7 +598,7 @@ public class IniTests
 
         Assert.Equal(["alpha:x", "beta:y"], ini.ToList().Select(pair => pair.Key));
         Assert.Equal(["1", "2"], ini.ToArray().Select(pair => pair.Value));
-        Assert.Equal(ini.KeyValuePairs, [.. ini]);
+        Assert.Equal(ini.AsEnumerable(), [.. ini]);
     }
 
     [Fact]
@@ -612,14 +612,14 @@ public class IniTests
     }
 
     [Fact]
-    public void KeyValuePairsYieldsPairsInKeyOrder()
+    public void EnumerationYieldsPairsInKeyOrder()
     {
         var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
 
         Assert.Equal(
             [new KeyValuePair<string, string>("alpha:x", "1"), new KeyValuePair<string, string>("beta:y", "2")],
-            ini.KeyValuePairs);
-        Assert.Equal(ini, ini.KeyValuePairs);
+            ini.AsEnumerable());
+        Assert.Equal(ini, ini.AsEnumerable());
     }
 
     // ------------------------------------------------------------ OfSeq
@@ -662,11 +662,11 @@ public class IniTests
     }
 
     [Fact]
-    public void OfSeqAndKeyValuePairsRoundTrip()
+    public void CreateAndEnumerationRoundTrip()
     {
         var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
 
-        var result = Ini.Create(ini.KeyValuePairs);
+        var result = Ini.Create(ini.AsEnumerable());
 
         Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
         Assert.Equal(ini, result.ResultValue);
@@ -791,8 +791,8 @@ public class IniTests
     {
         var ini = Create("root = 0", "[alpha]", "x = 1");
 
-        Assert.Equal("root = 0\n\n[alpha]\nx = 1", ini.ToString());
-        Assert.Equal(string.Join("\n", ini.ToLines()), ini.ToString());
+        Assert.Equal($"root = 0{Environment.NewLine}{Environment.NewLine}[alpha]{Environment.NewLine}x = 1", ini.ToString());
+        Assert.Equal(string.Join(Environment.NewLine, ini.ToLines()), ini.ToString());
     }
 
     [Fact]
@@ -875,7 +875,8 @@ public class IniTests
     public void ParserErrorsAreStructurallyEqual()
     {
         Assert.Equal(ParserError.NewInvalidLine("oops"), ParserError.NewInvalidLine("oops"));
-        Assert.Equal(ParserError.NewInvalidLine("oops").GetHashCode(), ParserError.NewInvalidLine("oops").GetHashCode());
+        Assert.Equal(ParserError.NewInvalidLine("oops").GetHashCode(),
+            ParserError.NewInvalidLine("oops").GetHashCode());
         Assert.NotEqual(ParserError.NewInvalidLine("oops"), ParserError.NewInvalidLine("other"));
     }
 

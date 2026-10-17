@@ -67,11 +67,11 @@ let ini =
     |> Result.bind (Ini.add "server:host" "localhost")
     |> Result.bind (Ini.add "server:port" "8080")
 
-ini |> Result.map Ini.toString
-// Ok "timeout = 30\n\n[server]\nhost = localhost\nport = 8080"
+ini |> Result.map Ini.toString // Ok "timeout = 30\n\n[server]\nhost = localhost\nport = 8080"
 ```
 
-The functions take the document last, so they compose with `|>`. `Ini.toFile` writes, `Ini.toLines` yields
+`toString` joins the lines with `Environment.NewLine` (`\n` above, `\r\n` on Windows). The functions take
+the document last, so they compose with `|>`. `Ini.toFile` writes, `Ini.toLines` yields
 the lines lazily.
 
 ### C#
@@ -241,8 +241,8 @@ Content failures are returned, not raised:
 
 ```fsharp
 type ParserError =
-    | InvalidKey of Key: string   // Add / Create, Ini.add / Ini.ofSeq
-    | InvalidLine of Line: string // FromLines / FromFile / AppendLines / AppendFile
+    | InvalidKey of Key: string
+    | InvalidLine of Line: string
 ```
 
 Each case carries the offending text verbatim. A missing key is an answer rather than a failure:
@@ -276,13 +276,16 @@ The type and the module carry the same operations; the module functions take the
 | `ini.Count`                      | `Ini.count ini`                         | `int`                         |
 | `ini.Keys`                       | `Ini.keys ini`                          | `seq<string>`                 |
 | `ini.Values`                     | `Ini.values ini`                        | `seq<string>`                 |
-| `ini.KeyValuePairs`              | `Ini.toSeq ini`                         | pairs, in key order           |
+| `foreach` / LINQ over `ini`      | `Ini.toSeq ini`                         | pairs, in key order           |
 | `ini.Sections`                   | `Ini.sections ini`                      | `seq<string>`                 |
 | `ini.Section name`               | `Ini.section name ini`                  | `Ini`                         |
 | `ini.RemoveSection name`         | `Ini.removeSection name ini`            | `Ini`                         |
 | `ini.ToLines()`                  | `Ini.toLines ini`                       | `seq<string>`                 |
 | `ini.ToFile path`                | `Ini.toFile path ini`                   | `unit`                        |
 | `ini.ToString()`                 | `Ini.toString ini`                      | `string`                      |
+
+There is no pairs property on the type: from C# the document itself is the sequence of pairs, so `foreach`,
+LINQ and `Ini.Create(ini)` take it directly.
 
 `Ini` implements `IEnumerable<KeyValuePair<string, string>>`, `IEquatable<Ini>` and `IComparable<Ini>`:
 documents are compared by keys and then values, and equal documents have equal hash codes. Name case,

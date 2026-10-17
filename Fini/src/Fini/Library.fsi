@@ -50,6 +50,9 @@ type ParserError =
 /// The model is flat: there is no nested object to walk, so lookup, enumeration and rendering all work on
 /// the same sequence of pairs, in key order — the root section first, then sections
 /// <c>OrdinalIgnoreCase</c> with a parent ahead of its children, then parameters within a section.
+/// The pairs themselves are reached by enumerating the document — it is an
+/// <c>IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt;</c>, keyed <c>section:parameter</c> with a root
+/// parameter keyed <c>:name</c> — or, from F#, through <c>Ini.toSeq</c>.
 /// </para>
 /// <para>
 /// Keys are compared case-insensitively (<c>OrdinalIgnoreCase</c>) in both halves; a key with no colon
@@ -82,7 +85,7 @@ type Ini =
     /// <paramref name="pairs"/>, or the key or the value of one of its pairs, is <c>null</c>.
     /// </exception>
     /// <remarks>
-    /// Takes the pair shape <c>KeyValuePairs</c> produces, so <c>Ini.Create(ini)</c> round-trips a
+    /// Takes the pair shape the document enumerates as, so <c>Ini.Create(ini)</c> round-trips a
     /// document.
     /// </remarks>
     static member Create: pairs: seq<KeyValuePair<string, string>> -> Result<Ini, ParserError>
@@ -242,10 +245,6 @@ type Ini =
     /// <summary>The values, in key order, aligned with <c>Keys</c>.</summary>
     member Values: seq<string>
 
-    /// <summary>The parameters as key/value pairs, in key order.</summary>
-    /// <remarks>The shape <c>Create</c> takes, so the two round-trip a document.</remarks>
-    member KeyValuePairs: seq<KeyValuePair<string, string>>
-
     /// <summary>The distinct section names, in key order, <c>""</c> for the root section.</summary>
     /// <remarks>
     /// A dotted name is stored verbatim and is a section of its own, so <c>[server]</c> and
@@ -300,7 +299,7 @@ type Ini =
     member ToFile: path: string -> unit
 
     /// <summary>Renders the document, by the rules <c>ToLines</c> uses.</summary>
-    /// <returns>The lines joined with <c>\n</c>.</returns>
+    /// <returns>The lines joined with <c>Environment.NewLine</c>.</returns>
     override ToString: unit -> string
 
     interface IEnumerable<KeyValuePair<string, string>>
@@ -565,5 +564,5 @@ module Ini =
 
     /// <summary>Renders a document, by the rules <c>toLines</c> uses.</summary>
     /// <param name="ini">The document.</param>
-    /// <returns>The lines joined with <c>\n</c>.</returns>
+    /// <returns>The lines joined with <c>Environment.NewLine</c>.</returns>
     val toString: ini: Ini -> string
