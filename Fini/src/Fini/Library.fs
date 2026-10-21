@@ -14,8 +14,8 @@ module private Operators =
     let inline (<?>) arg func = Option.map func arg
 
 [<AutoOpen>]
-module internal Guards =
-    let inline private throwIfNull paramName argument =
+module private Guards =
+    let inline throwIfNull paramName argument =
         if box argument |> isNull then
             ArgumentNullException paramName |> raise
 
@@ -38,7 +38,7 @@ module internal Guards =
         argument
 
 [<AutoOpen>]
-module internal Enumerator =
+module private Enumerator =
     let inline getEnumerator (s: 'T seq) = s.GetEnumerator()
 
     let inline moveNext (e: IEnumerator<'T>) = e.MoveNext()
@@ -46,7 +46,7 @@ module internal Enumerator =
     let inline current (e: IEnumerator<'T>) = e.Current
 
 [<AutoOpen>]
-module internal String =
+module private String =
     [<Literal>]
     let Empty = ""
 
@@ -66,15 +66,15 @@ module internal String =
     let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
 
 [<AutoOpen>]
-module internal File =
+module private File =
     let inline readLines path = File.ReadLines path
 
     let inline writeLines path (lines: string seq) = File.WriteAllLines(path, lines)
 
-type internal Comment = string
+type private Comment = string
 
 [<CustomComparison; CustomEquality>]
-type internal Section =
+type private Section =
     { Name: string }
 
     member m.CompareTo other =
@@ -97,16 +97,16 @@ type internal Section =
 
     override m.GetHashCode() = comparer.GetHashCode m.Name
 
-type internal Parameter = { Key: string; Value: string }
+type private Parameter = { Key: string; Value: string }
 
-type internal Line =
+type private Line =
     | Whitespace
     | Comment of Comment: Comment
     | Section of Section: Section
     | Parameter of Parameter: Parameter
 
 [<CustomComparison; CustomEquality>]
-type internal Key =
+type private Key =
     private
         { Section: Section
           Parameter: string }
@@ -135,7 +135,7 @@ type internal Key =
         ((first <<< 5) + first) ^^^ second
 
 [<RequireQualifiedAccess>]
-module internal Key =
+module private Key =
     let inline create key =
         match requireNonNull (nameof key) key |> indexOf Colon with
         | -1 -> { Section = { Name = Empty }; Parameter = key }
@@ -151,7 +151,7 @@ type ParserError =
 #endif
 
 [<AutoOpen>]
-module internal Parser =
+module private Parser =
     let private whitespaceRegex = Regex(@"^\s*$", RegexOptions.Compiled)
 
     let private commentRegex = Regex(@"^\s*[;#]\s*(.*?)\s*$", RegexOptions.Compiled)
@@ -231,15 +231,15 @@ module internal Parser =
 #endif
 
 [<RequireQualifiedAccess>]
-module internal KeyValuePair =
+module private KeyValuePair =
     let inline toStringKey (kvp: KeyValuePair<Key, string>) = KeyValuePair(kvp.Key.Path, kvp.Value)
 
 [<RequireQualifiedAccess>]
-module internal Tuple =
+module private Tuple =
     let inline toStringKey (kvp: KeyValuePair<Key, string>) = kvp.Key.Path, kvp.Value
 
 [<RequireQualifiedAccess>]
-module internal Map =
+module private Map =
     let create pairs requireNonNullPair tryParsePair =
         use enumerator = requireNonNullSeq (nameof pairs) pairs |> getEnumerator
 
