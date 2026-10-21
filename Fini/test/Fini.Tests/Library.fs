@@ -396,68 +396,68 @@ let ``tryFindNested does not search sibling or child sections`` () =
 // ---------------------------------------------------------------- generic lookup
 
 [<Fact>]
-let ``tryFindValueAs parses any IParsable type`` () =
+let ``tryFindValue parses any IParsable type`` () =
     let ini =
         create [ "guid = 0f8fad5b-d9cb-469f-a165-70867728950e"; "span = 00:05:00"; "date = 2026-10-21" ]
 
     Assert.Equal<Result<Guid, ParserError> option>(
         Some(Ok(Guid "0f8fad5b-d9cb-469f-a165-70867728950e")),
-        Ini.tryFindValueAs<Guid> "guid" ini
+        Ini.tryFindValue<Guid> "guid" ini
     )
 
-    Assert.Equal<Result<TimeSpan, ParserError> option>(Some(Ok(TimeSpan.FromMinutes 5.0)), Ini.tryFindValueAs<TimeSpan> "span" ini)
+    Assert.Equal<Result<TimeSpan, ParserError> option>(Some(Ok(TimeSpan.FromMinutes 5.0)), Ini.tryFindValue<TimeSpan> "span" ini)
 
-    Assert.Equal<Result<DateOnly, ParserError> option>(Some(Ok(DateOnly(2026, 10, 21))), Ini.tryFindValueAs<DateOnly> "date" ini)
+    Assert.Equal<Result<DateOnly, ParserError> option>(Some(Ok(DateOnly(2026, 10, 21))), Ini.tryFindValue<DateOnly> "date" ini)
 
 [<Fact>]
-let ``tryFindValueAs reports an unparsable value as InvalidValue`` () =
+let ``tryFindValue reports an unparsable value as InvalidValue`` () =
     let ini = create [ "x = nope" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindValueAs<int> "x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindValue<int> "x" ini)
 
 [<Fact>]
-let ``tryFindValueAs parses numbers under the invariant culture`` () =
+let ``tryFindValue parses numbers under the invariant culture`` () =
     let ini = create [ "x = 3.14"; "y = 1,234" ]
-    Assert.Equal<Result<float, ParserError> option>(Some(Ok 3.14), Ini.tryFindValueAs<float> "x" ini)
-    Assert.Equal<Result<float, ParserError> option>(Some(Ok 1234.0), Ini.tryFindValueAs<float> "y" ini)
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 3.14), Ini.tryFindValue<float> "x" ini)
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 1234.0), Ini.tryFindValue<float> "y" ini)
 
 [<Fact>]
-let ``tryFindValueAs rejects a thousands separator in an integer`` () =
+let ``tryFindValue rejects a thousands separator in an integer`` () =
     let ini = create [ "x = 1,234" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "1,234")), Ini.tryFindValueAs<int> "x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "1,234")), Ini.tryFindValue<int> "x" ini)
 
 [<Fact>]
-let ``tryFindValueAs returns None for a missing key`` () =
+let ``tryFindValue returns None for a missing key`` () =
     let ini = create [ "x = 42" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> "nope" ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> "nope" ini)
 
 [<Fact>]
-let ``tryFindValueAs never walks the section hierarchy`` () =
+let ``tryFindValue never walks the section hierarchy`` () =
     let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> "alpha:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> "alpha:x" ini)
 
 [<Fact>]
-let ``tryFindNestedValueAs falls back to the parent section`` () =
+let ``tryFindNestedValue falls back to the parent section`` () =
     let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), Ini.tryFindNestedValueAs<int> "alpha.beta:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), Ini.tryFindNestedValue<int> "alpha.beta:x" ini)
 
 [<Fact>]
-let ``tryFindNestedValueAs reports an unparsable value as InvalidValue`` () =
+let ``tryFindNestedValue reports an unparsable value as InvalidValue`` () =
     let ini = create [ "x = nope"; "[alpha]"; "y = 1" ]
 
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindNestedValueAs<int> "alpha:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindNestedValue<int> "alpha:x" ini)
 
 [<Fact>]
-let ``tryFindNestedValueAs returns None when no ancestor has the parameter`` () =
+let ``tryFindNestedValue returns None when no ancestor has the parameter`` () =
     let ini = create [ "[alpha]"; "x = 42" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValueAs<int> "alpha.beta:nope" ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValue<int> "alpha.beta:nope" ini)
 
 [<Fact>]
 let ``the generic lookups reject a null key`` () =
     let ini = create [ "x = 1" ]
 
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindValueAs<int> null ini |> ignore) |> ignore
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindValue<int> null ini |> ignore) |> ignore
 
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNestedValueAs<int> null ini |> ignore)
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNestedValue<int> null ini |> ignore)
     |> ignore
 
 [<Theory>]
@@ -467,8 +467,8 @@ let ``the generic lookups reject a null key`` () =
 [<InlineData("\t")>]
 let ``the generic lookups do not guard a blank key`` key =
     let ini = create [ "x = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> key ini)
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValueAs<int> key ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> key ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValue<int> key ini)
 
 [<Fact>]
 let ``the generic members agree with the generic functions`` () =

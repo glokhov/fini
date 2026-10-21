@@ -15,19 +15,15 @@ module private Operators =
 
 [<AutoOpen>]
 module internal Guards =
-    let inline private throwIfNull (paramName: string) (argument: 'T) =
-#if NET10_0_OR_GREATER
-        ArgumentNullException.ThrowIfNull(argument, paramName)
-#else
+    let inline private throwIfNull paramName argument =
         if box argument |> isNull then
             ArgumentNullException paramName |> raise
-#endif
 
-    let inline requireNonNull paramName (argument: 'T) =
+    let inline requireNonNull paramName argument =
         throwIfNull paramName argument
         argument
 
-    let inline requireNonNullSeq paramName (argument: 'T seq) =
+    let inline requireNonNullSeq paramName argument =
         throwIfNull paramName argument
         argument
 
@@ -36,19 +32,10 @@ module internal Guards =
         throwIfNull $"{paramName}.{nameof argument.Value}" argument.Value
         argument
 
-    let inline requireNonNullTuple paramName (argument: 'K * 'V) =
+    let inline requireNonNullTuple paramName argument =
         throwIfNull $"{paramName}.{nameof fst}" (fst argument)
         throwIfNull $"{paramName}.{nameof snd}" (snd argument)
         argument
-
-[<AutoOpen>]
-module internal Hash =
-    let inline combine (first: int) (second: int) =
-#if NET10_0_OR_GREATER
-        HashCode.Combine(first, second)
-#else
-        ((first <<< 5) + first) ^^^ second
-#endif
 
 [<AutoOpen>]
 module internal Enumerator =
@@ -143,7 +130,9 @@ type internal Key =
         | _ -> false
 
     override m.GetHashCode() =
-        combine (m.Section.GetHashCode()) (comparer.GetHashCode m.Parameter)
+        let first = m.Section.GetHashCode()
+        let second = comparer.GetHashCode m.Parameter
+        ((first <<< 5) + first) ^^^ second
 
 [<RequireQualifiedAccess>]
 module internal Key =
@@ -157,7 +146,7 @@ module internal Key =
 type ParserError =
     | InvalidKey of Key: string
     | InvalidLine of Line: string
-#if NET10_0_OR_GREATER
+#if NET
     | InvalidValue of Value: string
 #endif
 
@@ -234,7 +223,7 @@ module internal Parser =
         | Ok key -> Ok(key, snd tuple)
         | Error err -> Error err
 
-#if NET10_0_OR_GREATER
+#if NET
     let tryParseValue<'T when 'T :> IParsable<'T>> value =
         match 'T.TryParse(value, CultureInfo.InvariantCulture) with
         | true, result -> Ok result
@@ -290,8 +279,8 @@ module internal Map =
 
     let tryFind key map = Map.tryFind (Key.create key) map
 
-#if NET10_0_OR_GREATER
-    let tryFindValue<'T when 'T :> IParsable<'T>> key map = tryFind key map <?> tryParseValue<'T>
+#if NET
+    let tryFindValue key map = tryFind key map <?> tryParseValue
 #endif
 
     let tryFindNested key map =
@@ -310,7 +299,7 @@ module internal Map =
 
         loop key.Section
 
-#if NET10_0_OR_GREATER
+#if NET
     let tryFindNestedValue key map = tryFindNested key map <?> tryParseValue
 #endif
 
@@ -399,13 +388,13 @@ type Ini =
 
     member m.TryFind key = Map.tryFind key m.Map
 
-#if NET10_0_OR_GREATER
+#if NET
     member m.TryFindValue key = Map.tryFindValue key m.Map
 #endif
 
     member m.TryFindNested key = Map.tryFindNested key m.Map
 
-#if NET10_0_OR_GREATER
+#if NET
     member m.TryFindNestedValue key = Map.tryFindNestedValue key m.Map
 #endif
 
@@ -461,14 +450,14 @@ module Ini =
 
     let tryFind key (ini: Ini) = ini.TryFind key
 
-#if NET10_0_OR_GREATER
-    let tryFindValueAs key (ini: Ini) = ini.TryFindValue key
+#if NET
+    let tryFindValue key (ini: Ini) = ini.TryFindValue key
 #endif
 
     let tryFindNested key (ini: Ini) = ini.TryFindNested key
 
-#if NET10_0_OR_GREATER
-    let tryFindNestedValueAs key (ini: Ini) = ini.TryFindNestedValue key
+#if NET
+    let tryFindNestedValue key (ini: Ini) = ini.TryFindNestedValue key
 #endif
 
     let remove key (ini: Ini) = ini.Remove key

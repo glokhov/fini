@@ -20,7 +20,7 @@ the same keys and values, and the whole model is flat — one parameter per key,
 dotnet add package Fini --prerelease
 ```
 
-Targets `net10.0` and `net48`. The only dependency is `FSharp.Core`.
+Targets `net48` and `net10.0`. The only dependency is `FSharp.Core`.
 
 ## Quick start
 
@@ -58,7 +58,7 @@ ini |> Ini.tryFindNested "server.dev:host"    // Some "localhost" — inherited 
 ini |> Ini.tryFindNested "server.dev:timeout" // Some "30"    — inherited from the root
 
 // lookup that parses the value — any IParsable type, net10.0 only
-ini |> Ini.tryFindValueAs<int> "server:port"  // Some (Ok 8080)
+ini |> Ini.tryFindValue<int> "server:port"    // Some (Ok 8080)
 ```
 
 Building a document, and rendering it back:
@@ -245,9 +245,9 @@ One generic lookup parses the value it finds as any `IParsable<T>` — the primi
 `None` for a missing key, `Some (Error (InvalidValue value))` for a value that does not parse.
 
 ```fsharp
-ini |> Ini.tryFindValueAs<int> "server:port"            // Some (Ok 8080)
-ini |> Ini.tryFindValueAs<Guid> "server:id"             // Some (Ok ...)
-ini |> Ini.tryFindNestedValueAs<TimeSpan> "server.dev:timeout"
+ini |> Ini.tryFindValue<int> "server:port"            // Some (Ok 8080)
+ini |> Ini.tryFindValue<Guid> "server:id"             // Some (Ok ...)
+ini |> Ini.tryFindNestedValue<TimeSpan> "server.dev:timeout"
 ```
 
 ```csharp
@@ -257,11 +257,11 @@ if (ini.TryFindValue<int>("server:port") is { Value: { IsOk: true, ResultValue: 
 }
 ```
 
-`IParsable<T>` takes no `NumberStyles`, so each type parses with its own default: `tryFindValueAs<float>`
-accepts a thousands separator and so reads `"1,234"` as `Ok 1234.0`, where `tryFindValueAs<int>` does not
+`IParsable<T>` takes no `NumberStyles`, so each type parses with its own default: `tryFindValue<float>`
+accepts a thousands separator and so reads `"1,234"` as `Ok 1234.0`, where `tryFindValue<int>` does not
 and gives `Error (InvalidValue "1,234")`.
 
-`TryFindValue` / `TryFindNestedValue` and `tryFindValueAs` / `tryFindNestedValueAs` are compiled only into
+`TryFindValue` / `TryFindNestedValue` (`tryFindValue` / `tryFindNestedValue` in F#) are compiled only into
 the `net10.0` build — `net48` has no `IParsable<T>`, and so no parsing lookup and no `InvalidValue` case
 on `ParserError`.
 
@@ -277,8 +277,8 @@ type ParserError =
 ```
 
 Each case carries the offending text verbatim. A missing key is an answer rather than a failure:
-`tryFind` / `tryFindNested` return an option. Their parsing counterparts `tryFindValueAs` /
-`tryFindNestedValueAs` return an option of a result, `Some (Error (InvalidValue value))` when the key is
+`tryFind` / `tryFindNested` return an option. Their parsing counterparts `tryFindValue` /
+`tryFindNestedValue` return an option of a result, `Some (Error (InvalidValue value))` when the key is
 found but its value does not parse. A `null` argument and a filesystem problem are raised.
 
 `InvalidValue` only ever comes out of those two, and both they and the case itself are compiled only into
@@ -304,9 +304,9 @@ The type and the module carry the same operations; the module functions take the
 | `ini.AppendFile path`            | `Ini.appendFile path ini`               | `Result<Ini, ParserError>`    |
 | `ini.Add(key, value)`            | `Ini.add key value ini`                 | `Result<Ini, ParserError>`    |
 | `ini.TryFind key`                | `Ini.tryFind key ini`                   | `string option`               |
-| `ini.TryFindValue<T> key`        | `Ini.tryFindValueAs<'T> key ini`        | `Result<'T, ParserError> option` — `net10.0` only |
+| `ini.TryFindValue<T> key`        | `Ini.tryFindValue<'T> key ini`          | `Result<'T, ParserError> option` — `net10.0` only |
 | `ini.TryFindNested key`          | `Ini.tryFindNested key ini`             | `string option`               |
-| `ini.TryFindNestedValue<T> key`  | `Ini.tryFindNestedValueAs<'T> key ini`  | `Result<'T, ParserError> option` — `net10.0` only |
+| `ini.TryFindNestedValue<T> key`  | `Ini.tryFindNestedValue<'T> key ini`    | `Result<'T, ParserError> option` — `net10.0` only |
 | `ini.Remove key`                 | `Ini.remove key ini`                    | `Ini`                         |
 | `ini.ContainsKey key`            | `Ini.containsKey key ini`               | `bool`                        |
 | `ini.IsEmpty`                    | `Ini.isEmpty ini`                       | `bool`                        |

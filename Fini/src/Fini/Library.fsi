@@ -38,10 +38,10 @@ type ParserError =
     /// </summary>
     | InvalidLine of Line: string
 
-#if NET10_0_OR_GREATER
+#if NET
     /// <summary>
     /// A value that does not parse as the requested type. Reported by <c>TryFindValue</c> and
-    /// <c>TryFindNestedValue</c> / <c>Ini.tryFindValueAs</c> and <c>Ini.tryFindNestedValueAs</c>, when the
+    /// <c>TryFindNestedValue</c> (<c>Ini.tryFindValue</c> / <c>Ini.tryFindNestedValue</c>), when the
     /// key is present but its value cannot be parsed.
     /// </summary>
     /// <remarks>
@@ -205,7 +205,7 @@ type Ini =
     /// </remarks>
     member TryFind: key: string -> string option
 
-#if NET10_0_OR_GREATER
+#if NET
     /// <summary>Looks up one key, exactly, and parses it as any <c>IParsable</c> type.</summary>
     /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -241,7 +241,7 @@ type Ini =
     /// </example>
     member TryFindNested: key: string -> string option
 
-#if NET10_0_OR_GREATER
+#if NET
     /// <summary>
     /// Looks up one key, walking up the section hierarchy, and parses it as any <c>IParsable</c> type.
     /// </summary>
@@ -467,7 +467,7 @@ module Ini =
     /// <remarks>Never walks the section hierarchy.</remarks>
     val tryFind: key: string -> ini: Ini -> string option
 
-#if NET10_0_OR_GREATER
+#if NET
     /// <summary>Looks up one key, exactly, and parses it as any <c>IParsable</c> type.</summary>
     /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -486,8 +486,8 @@ module Ini =
     /// separator, and so reads <c>3,14</c> as <c>314</c>, while <c>int</c> does not. Not available on
     /// <c>net48</c>, which has no <c>IParsable&lt;T&gt;</c>.
     /// </remarks>
-    /// <example><c>ini |&gt; Ini.tryFindValueAs&lt;int&gt; "server:port"</c></example>
-    val tryFindValueAs<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
+    /// <example><c>ini |&gt; Ini.tryFindValue&lt;int&gt; "server:port"</c></example>
+    val tryFindValue<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
 #endif
 
     /// <summary>Looks up one key, walking up the section hierarchy.</summary>
@@ -506,7 +506,7 @@ module Ini =
     /// </example>
     val tryFindNested: key: string -> ini: Ini -> string option
 
-#if NET10_0_OR_GREATER
+#if NET
     /// <summary>
     /// Looks up one key, walking up the section hierarchy, and parses it as any <c>IParsable</c> type.
     /// </summary>
@@ -524,8 +524,8 @@ module Ini =
     /// <c>T.TryParse</c> with <c>CultureInfo.InvariantCulture</c>. Not available on <c>net48</c>, which
     /// has no <c>IParsable&lt;T&gt;</c>.
     /// </remarks>
-    /// <example><c>ini |&gt; Ini.tryFindNestedValueAs&lt;int&gt; "server.dev:port"</c></example>
-    val tryFindNestedValueAs<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
+    /// <example><c>ini |&gt; Ini.tryFindNestedValue&lt;int&gt; "server.dev:port"</c></example>
+    val tryFindNestedValue<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
 #endif
 
     /// <summary>Removes one parameter.</summary>
