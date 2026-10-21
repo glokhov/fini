@@ -403,48 +403,48 @@ type Ini =
 module Ini =
     let empty = Ini.Empty
 
-    let inline ofSeq pairs = Ini.OfSeq pairs
+    let ofSeq pairs = Ini.OfSeq pairs
 
-    let inline appendLines lines (ini: Ini) = ini.AppendLines lines
+    let appendLines lines (ini: Ini) = ini.AppendLines lines
 
-    let inline appendFile path (ini: Ini) = ini.AppendFile path
+    let appendFile path (ini: Ini) = ini.AppendFile path
 
-    let inline fromLines lines = Ini.FromLines lines
+    let fromLines lines = Ini.FromLines lines
 
-    let inline fromFile path = Ini.FromFile path
+    let fromFile path = Ini.FromFile path
 
-    let inline isEmpty (ini: Ini) = ini.IsEmpty
+    let isEmpty (ini: Ini) = ini.IsEmpty
 
-    let inline add key value (ini: Ini) = ini.Add(key, value)
+    let add key value (ini: Ini) = ini.Add(key, value)
 
-    let inline tryFind key (ini: Ini) = ini.TryFind key
+    let tryFind key (ini: Ini) = ini.TryFind key
 
-    let inline tryFindNested key (ini: Ini) = ini.TryFindNested key
+    let tryFindNested key (ini: Ini) = ini.TryFindNested key
 
-    let inline find key (ini: Ini) = ini.Find key
+    let find key (ini: Ini) = ini.Find key
 
-    let inline findNested key (ini: Ini) = ini.FindNested key
+    let findNested key (ini: Ini) = ini.FindNested key
 
-    let inline remove key (ini: Ini) = ini.Remove key
+    let remove key (ini: Ini) = ini.Remove key
 
-    let inline count (ini: Ini) = ini.Count
+    let count (ini: Ini) = ini.Count
 
-    let inline containsKey key (ini: Ini) = ini.ContainsKey key
+    let containsKey key (ini: Ini) = ini.ContainsKey key
 
-    let inline keys (ini: Ini) = ini.Keys
+    let keys (ini: Ini) = ini.Keys
 
-    let inline values (ini: Ini) = ini.Values
+    let values (ini: Ini) = ini.Values
 
-    let inline sections (ini: Ini) = ini.Sections
+    let sections (ini: Ini) = ini.Sections
 
-    let inline section name (ini: Ini) = ini.Section name
+    let section name (ini: Ini) = ini.Section name
 
-    let inline removeSection name (ini: Ini) = ini.RemoveSection name
+    let removeSection name (ini: Ini) = ini.RemoveSection name
 
-    let inline toSeq (ini: Ini) = ini.Tuples
+    let toSeq (ini: Ini) = ini.Tuples
 
-    let inline toLines (ini: Ini) = ini.ToLines()
+    let toLines (ini: Ini) = ini.ToLines()
 
-    let inline toFile path (ini: Ini) = ini.ToFile path
+    let toFile path (ini: Ini) = ini.ToFile path
 
-    let inline toString (ini: Ini) = ini.ToString()
+    let toString (ini: Ini) = ini.ToString()

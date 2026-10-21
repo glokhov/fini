@@ -334,7 +334,7 @@ module Ini =
     /// Takes the shape <c>toSeq</c> produces, so <c>ini |&gt; Ini.toSeq |&gt; Ini.ofSeq</c> round-trips a
     /// document.
     /// </remarks>
-    val inline ofSeq: pairs: seq<string * string> -> Result<Ini, ParserError>
+    val ofSeq: pairs: seq<string * string> -> Result<Ini, ParserError>
 
     /// <summary>Parses a file into a document.</summary>
     /// <param name="path">The path of the file to read.</param>
@@ -349,7 +349,7 @@ module Ini =
     /// <remarks>
     /// A single lazy pass that stops at the first unparsable line, closing the file handle on the way out.
     /// </remarks>
-    val inline fromFile: path: string -> Result<Ini, ParserError>
+    val fromFile: path: string -> Result<Ini, ParserError>
 
     /// <summary>Parses lines into a document.</summary>
     /// <param name="lines">
@@ -364,7 +364,7 @@ module Ini =
     /// <exception cref="T:System.ArgumentNullException">
     /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    val inline fromLines: lines: seq<string> -> Result<Ini, ParserError>
+    val fromLines: lines: seq<string> -> Result<Ini, ParserError>
 
     /// <summary>Layers a file over a document.</summary>
     /// <param name="path">The path of the file to read.</param>
@@ -382,7 +382,7 @@ module Ini =
     /// Parsing starts at the root section, by design: a layer's lines are read by exactly the rules
     /// <c>fromLines</c> uses, so load order decides which value wins, never which key a line writes to.
     /// </remarks>
-    val inline appendFile: path: string -> ini: Ini -> Result<Ini, ParserError>
+    val appendFile: path: string -> ini: Ini -> Result<Ini, ParserError>
 
     /// <summary>Layers lines over a document.</summary>
     /// <param name="lines">The lines to read, by the rules <c>fromLines</c> uses.</param>
@@ -399,12 +399,12 @@ module Ini =
     /// Parsing starts at the root section, by design, so <c>Ini.empty |&gt; Ini.appendLines lines</c> is
     /// <c>Ini.fromLines lines</c>.
     /// </remarks>
-    val inline appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, ParserError>
+    val appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, ParserError>
 
     /// <summary>Whether a document holds no parameters.</summary>
     /// <param name="ini">The document.</param>
     /// <returns><c>true</c> when the document is empty.</returns>
-    val inline isEmpty: ini: Ini -> bool
+    val isEmpty: ini: Ini -> bool
 
     /// <summary>Adds a parameter, or overwrites the one already under that key.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -417,7 +417,7 @@ module Ini =
     /// <exception cref="T:System.ArgumentNullException">
     /// <paramref name="key"/> or <paramref name="value"/> is <c>null</c>.
     /// </exception>
-    val inline add: key: string -> value: string -> ini: Ini -> Result<Ini, ParserError>
+    val add: key: string -> value: string -> ini: Ini -> Result<Ini, ParserError>
 
     /// <summary>Looks up one key, exactly.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -425,7 +425,7 @@ module Ini =
     /// <returns><c>Some</c> of the value, or <c>None</c> when the document holds no such key.</returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
     /// <remarks>Never walks the section hierarchy.</remarks>
-    val inline tryFind: key: string -> ini: Ini -> string option
+    val tryFind: key: string -> ini: Ini -> string option
 
     /// <summary>Looks up one key, walking up the section hierarchy.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -441,7 +441,7 @@ module Ini =
     /// <c>server.dev:host</c> gives <c>localhost</c> inherited from <c>[server]</c>, and
     /// <c>server.dev:timeout</c> gives <c>30</c> inherited from the root.
     /// </example>
-    val inline tryFindNested: key: string -> ini: Ini -> string option
+    val tryFindNested: key: string -> ini: Ini -> string option
 
     /// <summary>Looks up one key, exactly. The partial counterpart of <c>tryFind</c>.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -451,7 +451,7 @@ module Ini =
     /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
     /// The document holds no such key.
     /// </exception>
-    val inline find: key: string -> ini: Ini -> string
+    val find: key: string -> ini: Ini -> string
 
     /// <summary>
     /// Looks up one key, walking up the section hierarchy. The partial counterpart of
@@ -464,7 +464,7 @@ module Ini =
     /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
     /// Neither the section nor any of its ancestors nor the root holds the parameter.
     /// </exception>
-    val inline findNested: key: string -> ini: Ini -> string
+    val findNested: key: string -> ini: Ini -> string
 
     /// <summary>Removes one parameter.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -473,29 +473,29 @@ module Ini =
     /// A new document without that parameter, or one equal to the given document when the key is absent.
     /// </returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    val inline remove: key: string -> ini: Ini -> Ini
+    val remove: key: string -> ini: Ini -> Ini
 
     /// <summary>The number of parameters in a document.</summary>
     /// <param name="ini">The document.</param>
     /// <returns>The parameter count.</returns>
-    val inline count: ini: Ini -> int
+    val count: ini: Ini -> int
 
     /// <summary>Whether a document holds that key.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
     /// <param name="ini">The document.</param>
     /// <returns><c>true</c> when the key is present, matched case-insensitively.</returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    val inline containsKey: key: string -> ini: Ini -> bool
+    val containsKey: key: string -> ini: Ini -> bool
 
     /// <summary>The keys of a document, in key order, each of the form <c>section:parameter</c>.</summary>
     /// <param name="ini">The document.</param>
     /// <returns>The keys; a root parameter is keyed <c>:name</c>.</returns>
-    val inline keys: ini: Ini -> seq<string>
+    val keys: ini: Ini -> seq<string>
 
     /// <summary>The values of a document, in key order, aligned with <c>keys</c>.</summary>
     /// <param name="ini">The document.</param>
     /// <returns>The values.</returns>
-    val inline values: ini: Ini -> seq<string>
+    val values: ini: Ini -> seq<string>
 
     /// <summary>The distinct section names of a document, in key order.</summary>
     /// <param name="ini">The document.</param>
@@ -504,7 +504,7 @@ module Ini =
     /// A dotted name is stored verbatim and is a section of its own, so <c>[server]</c> and
     /// <c>[server.dev]</c> are two names.
     /// </remarks>
-    val inline sections: ini: Ini -> seq<string>
+    val sections: ini: Ini -> seq<string>
 
     /// <summary>Takes one section as a standalone document.</summary>
     /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
@@ -518,7 +518,7 @@ module Ini =
     /// <c>ini |&gt; Ini.section "alpha" |&gt; Ini.toLines</c> gives <c>[ "[alpha]"; "x = 1" ]</c>. A
     /// <c>null</c> name is not guarded and simply matches nothing.
     /// </remarks>
-    val inline section: name: string -> ini: Ini -> Ini
+    val section: name: string -> ini: Ini -> Ini
 
     /// <summary>Removes one whole section. The complement of <c>section</c>.</summary>
     /// <param name="name">The section name, matched case-insensitively; <c>""</c> for the root section.</param>
@@ -532,12 +532,12 @@ module Ini =
     /// place — remove it by name, or fold over <c>Ini.sections</c> to drop a whole subtree. A <c>null</c>
     /// name is not guarded and simply matches nothing.
     /// </remarks>
-    val inline removeSection: name: string -> ini: Ini -> Ini
+    val removeSection: name: string -> ini: Ini -> Ini
 
     /// <summary>The parameters of a document as key/value tuples, in key order.</summary>
     /// <param name="ini">The document.</param>
     /// <returns>The pairs, in the shape <c>ofSeq</c> takes.</returns>
-    val inline toSeq: ini: Ini -> seq<string * string>
+    val toSeq: ini: Ini -> seq<string * string>
 
     /// <summary>Renders a document.</summary>
     /// <param name="ini">The document.</param>
@@ -551,7 +551,7 @@ module Ini =
     /// ordering and duplicate entries are not preserved. Values are, so rendering and parsing back gives
     /// an equal document.
     /// </remarks>
-    val inline toLines: ini: Ini -> seq<string>
+    val toLines: ini: Ini -> seq<string>
 
     /// <summary>Renders a document to a file, by the rules <c>toLines</c> uses.</summary>
     /// <param name="path">The path of the file to write, overwritten when it already exists.</param>
@@ -560,9 +560,9 @@ module Ini =
     /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
     /// <exception cref="T:System.IO.IOException">The file cannot be written.</exception>
     /// <remarks>Writes the lines with <c>File.WriteAllLines</c>, so each ends with the platform newline.</remarks>
-    val inline toFile: path: string -> ini: Ini -> unit
+    val toFile: path: string -> ini: Ini -> unit
 
     /// <summary>Renders a document, by the rules <c>toLines</c> uses.</summary>
     /// <param name="ini">The document.</param>
     /// <returns>The lines joined with <c>Environment.NewLine</c>.</returns>
-    val inline toString: ini: Ini -> string
+    val toString: ini: Ini -> string
