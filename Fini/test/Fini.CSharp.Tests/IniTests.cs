@@ -124,8 +124,6 @@ public class IniTests
         Assert.Null(ini.TryFind(key));
         Assert.Null(ini.TryFindNested(key));
         Assert.False(ini.ContainsKey(key));
-        Assert.Throws<KeyNotFoundException>(() => ini.Find(key));
-        Assert.Throws<KeyNotFoundException>(() => ini.FindNested(key));
         Assert.Equal(ini, ini.Remove(key));
     }
 
@@ -157,6 +155,60 @@ public class IniTests
         var ini = Create("[alpha]", "x = 1");
 
         Assert.Null(ini.TryFindNested("alpha.beta:nope"));
+    }
+
+    // ------------------------------------------------------------ generic lookup
+
+    [Fact]
+    public void TryFindValueParsesAnyParsableType()
+    {
+        var ini = Create("i = 42", "b = true", "f = 3.14", "span = 00:05:00");
+
+        Assert.True(ini.TryFindValue<int>("i") is { Value: { IsOk: true, ResultValue: 42 } });
+        Assert.True(ini.TryFindValue<bool>("b") is { Value: { IsOk: true, ResultValue: true } });
+        Assert.True(ini.TryFindValue<double>("f") is { Value: { IsOk: true, ResultValue: 3.14 } });
+        Assert.Equal(TimeSpan.FromMinutes(5), ini.TryFindValue<TimeSpan>("span")!.Value.ResultValue);
+    }
+
+    [Fact]
+    public void TryFindValueReportsAnUnparsableValueAsInvalidValue()
+    {
+        var ini = Create("x = nope");
+
+        Assert.True(ini.TryFindValue<int>("x") is { Value.IsError: true });
+        Assert.Equal(ParserError.NewInvalidValue("nope"), ini.TryFindValue<int>("x")!.Value.ErrorValue);
+    }
+
+    [Fact]
+    public void TryFindValueReturnsNullOnMiss()
+    {
+        var ini = Create("x = 42");
+
+        Assert.Null(ini.TryFindValue<int>("nope"));
+    }
+
+    [Fact]
+    public void TryFindValueNeverWalksTheSectionHierarchy()
+    {
+        var ini = Create("x = 42", "[alpha]", "y = 1");
+
+        Assert.Null(ini.TryFindValue<int>("alpha:x"));
+    }
+
+    [Fact]
+    public void TryFindNestedValueFallsBackToTheParentSection()
+    {
+        var ini = Create("x = 42", "[alpha]", "y = 1");
+
+        Assert.True(ini.TryFindNestedValue<int>("alpha.beta:x") is { Value: { IsOk: true, ResultValue: 42 } });
+    }
+
+    [Fact]
+    public void TryFindNestedValueReturnsNullWhenNoAncestorHasTheParameter()
+    {
+        var ini = Create("[alpha]", "x = 42");
+
+        Assert.Null(ini.TryFindNestedValue<int>("alpha.beta:nope"));
     }
 
     // ------------------------------------------------------------ append
@@ -285,29 +337,6 @@ public class IniTests
         var ini = Create("[alpha]", "x = 1");
 
         Assert.Equal(ini, ini.Remove("beta:y"));
-    }
-
-    [Fact]
-    public void FindReturnsTheValueOrThrows()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal("1", ini.Find("ALPHA:X"));
-        Assert.Throws<KeyNotFoundException>(() => ini.Find("alpha:nope"));
-    }
-
-    [Fact]
-    public void FindNestedWalksTheHierarchyOrThrows()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1");
-
-        Assert.Equal("1", ini.FindNested("alpha.beta:x"));
-        Assert.Equal("0", ini.FindNested("alpha.beta:root"));
-
-        var nested = Assert.Throws<KeyNotFoundException>(() => ini.FindNested("alpha.beta:nope"));
-        var direct = Assert.Throws<KeyNotFoundException>(() => ini.Find("alpha:nope"));
-
-        Assert.Equal(direct.Message, nested.Message);
     }
 
     // ------------------------------------------------------------ sections
@@ -745,8 +774,8 @@ public class IniTests
 
             Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
             Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
-            Assert.Equal("2", result.ResultValue.Find("alpha:x"));
-            Assert.Equal("1", ini.Find("alpha:x"));
+            Assert.Equal("2", result.ResultValue.TryFind("alpha:x").Value);
+            Assert.Equal("1", ini.TryFind("alpha:x").Value);
         });
     }
 

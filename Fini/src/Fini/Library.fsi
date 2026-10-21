@@ -5,15 +5,18 @@ open System.Collections
 open System.Collections.Generic
 
 /// <summary>
-/// The reason a document could not be built: a line the parser cannot read, or a key it rejects.
+/// The reason an operation failed: a line the parser cannot read or a key it rejects, either of which
+/// keeps a document from being built, and — on <c>net10.0</c> — a value that does not parse as a
+/// requested type, which a lookup over a document already built reports.
 /// Each case carries the offending text verbatim — untrimmed, unquoted, with no position and no prose
 /// around it.
 /// </summary>
 /// <remarks>
 /// Two errors are equal when they hold the same case and the same text, and <c>ToString</c> names both,
 /// as in <c>InvalidKey "a b"</c>. From C# the cases are nested types that carry their payload under the
-/// field name — <c>Key</c> and <c>Line</c> — with <c>IsInvalidKey</c> / <c>IsInvalidLine</c> to test one
-/// and <c>NewInvalidKey</c> / <c>NewInvalidLine</c> to build one.
+/// field name — <c>Key</c> and <c>Line</c>, and <c>Value</c> on <c>net10.0</c> — with
+/// <c>IsInvalidKey</c> / <c>IsInvalidLine</c> to test one and <c>NewInvalidKey</c> /
+/// <c>NewInvalidLine</c> to build one. The <c>net48</c> build has two cases, not three.
 /// </remarks>
 type ParserError =
     /// <summary>
@@ -34,6 +37,21 @@ type ParserError =
     /// <c>Ini.fromFile</c>, <c>Ini.appendLines</c> and <c>Ini.appendFile</c>.
     /// </summary>
     | InvalidLine of Line: string
+
+#if NET10_0_OR_GREATER
+    /// <summary>
+    /// A value that does not parse as the requested type. Reported by <c>TryFindValue</c> and
+    /// <c>TryFindNestedValue</c> / <c>Ini.tryFindValueAs</c> and <c>Ini.tryFindNestedValueAs</c>, when the
+    /// key is present but its value cannot be parsed.
+    /// </summary>
+    /// <remarks>
+    /// Parsing follows <c>T.TryParse</c> under <c>CultureInfo.InvariantCulture</c>. A missing key is
+    /// <c>None</c>, never this error. The case and the two lookups that report it are compiled only into
+    /// the <c>net10.0</c> build, so <c>ParserError</c> has three cases there and two on <c>net48</c>,
+    /// which has no <c>IParsable&lt;T&gt;</c>.
+    /// </remarks>
+    | InvalidValue of Value: string
+#endif
 
 /// <summary>
 /// An immutable INI document: a set of parameters, each keyed <c>section:parameter</c>.
@@ -58,13 +76,15 @@ type ParserError =
 /// Keys are compared case-insensitively (<c>OrdinalIgnoreCase</c>) in both halves; a key with no colon
 /// refers to the root section, so <c>x</c> and <c>:x</c> are the same key. Keys are never trimmed or
 /// repaired, so a key the parser would reject is simply absent on the way out: <c>TryFind</c> gives
-/// <c>None</c>, <c>ContainsKey</c> gives <c>false</c>, <c>Remove</c> is a no-op and <c>Find</c> raises.
+/// <c>None</c>, <c>ContainsKey</c> gives <c>false</c> and <c>Remove</c> is a no-op.
 /// </para>
 /// <para>
 /// Content failures — an unparsable line, an invalid key — are returned as
-/// <c>Error</c> of <c>Result&lt;Ini, ParserError&gt;</c>. A missing key is an answer rather than a failure:
-/// <c>TryFind</c> and <c>TryFindNested</c> return an option, <c>Find</c> and <c>FindNested</c> are their
-/// partial counterparts and raise. A <c>null</c> argument and a filesystem problem are raised.
+/// <c>Error</c> of <c>ParserError</c>, never raised. A missing key is an answer rather than a failure:
+/// <c>TryFind</c> and <c>TryFindNested</c> return an option; their parsing counterparts
+/// <c>TryFindValue</c> and <c>TryFindNestedValue</c> — <c>net10.0</c> only — return an option of a
+/// result, <c>Some</c> of <c>Error</c> of <c>InvalidValue</c> when the key is found but its value does
+/// not parse. A <c>null</c> argument and a filesystem problem are raised.
 /// </para>
 /// </remarks>
 [<Sealed>]
@@ -185,6 +205,27 @@ type Ini =
     /// </remarks>
     member TryFind: key: string -> string option
 
+#if NET10_0_OR_GREATER
+    /// <summary>Looks up one key, exactly, and parses it as any <c>IParsable</c> type.</summary>
+    /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <returns>
+    /// <c>Some</c> of <c>Ok</c> of the parsed value when the key is present and its value parses,
+    /// <c>Some</c> of <c>Error</c> of <c>InvalidValue</c> when the key is present but its value does not
+    /// parse, or <c>None</c> when the document holds no such key.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Never walks the section hierarchy. Parsing follows <c>T.TryParse</c> with
+    /// <c>CultureInfo.InvariantCulture</c>, so it covers the primitives, <c>Guid</c>, <c>DateTime</c>,
+    /// <c>TimeSpan</c> and any own type implementing the interface. The interface takes no
+    /// <c>NumberStyles</c>, so each type parses with its own default — <c>float</c> allows a thousands
+    /// separator, and so reads <c>3,14</c> as <c>314</c>, while <c>int</c> does not. Not available on
+    /// <c>net48</c>, which has no <c>IParsable&lt;T&gt;</c>.
+    /// </remarks>
+    member TryFindValue<'T when 'T :> IParsable<'T>> : key: string -> Result<'T, ParserError> option
+#endif
+
     /// <summary>Looks up one key, walking up the section hierarchy.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
     /// <returns>
@@ -200,26 +241,25 @@ type Ini =
     /// </example>
     member TryFindNested: key: string -> string option
 
-    /// <summary>Looks up one key, exactly. The partial counterpart of <c>TryFind</c>.</summary>
-    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
-    /// <returns>The value.</returns>
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
-    /// The document holds no such key.
-    /// </exception>
-    member Find: key: string -> string
-
+#if NET10_0_OR_GREATER
     /// <summary>
-    /// Looks up one key, walking up the section hierarchy. The partial counterpart of
-    /// <c>TryFindNested</c>.
+    /// Looks up one key, walking up the section hierarchy, and parses it as any <c>IParsable</c> type.
     /// </summary>
+    /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
-    /// <returns>The value found in the given section, in its nearest dotted ancestor, or in the root.</returns>
+    /// <returns>
+    /// <c>Some</c> of <c>Ok</c> of the parsed value when the key is found, <c>Some</c> of <c>Error</c> of
+    /// <c>InvalidValue</c> when the value found does not parse, or <c>None</c> when none of the given
+    /// section, its nearest dotted ancestors nor the root section holds the parameter.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
-    /// Neither the section nor any of its ancestors nor the root holds the parameter.
-    /// </exception>
-    member FindNested: key: string -> string
+    /// <remarks>
+    /// Walks the section hierarchy by the rules <c>TryFindNested</c> uses. Parsing follows
+    /// <c>T.TryParse</c> with <c>CultureInfo.InvariantCulture</c>. Not available on <c>net48</c>, which
+    /// has no <c>IParsable&lt;T&gt;</c>.
+    /// </remarks>
+    member TryFindNestedValue<'T when 'T :> IParsable<'T>> : key: string -> Result<'T, ParserError> option
+#endif
 
     /// <summary>Removes one parameter.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
@@ -427,6 +467,29 @@ module Ini =
     /// <remarks>Never walks the section hierarchy.</remarks>
     val tryFind: key: string -> ini: Ini -> string option
 
+#if NET10_0_OR_GREATER
+    /// <summary>Looks up one key, exactly, and parses it as any <c>IParsable</c> type.</summary>
+    /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
+    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
+    /// <param name="ini">The document.</param>
+    /// <returns>
+    /// <c>Some</c> of <c>Ok</c> of the parsed value when the key is present and its value parses,
+    /// <c>Some</c> of <c>Error</c> of <c>InvalidValue</c> when the key is present but its value does not
+    /// parse, or <c>None</c> when the document holds no such key.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Never walks the section hierarchy. Parsing follows <c>T.TryParse</c> with
+    /// <c>CultureInfo.InvariantCulture</c>, so it covers the primitives, <c>Guid</c>, <c>DateTime</c>,
+    /// <c>TimeSpan</c> and any own type implementing the interface. The interface takes no
+    /// <c>NumberStyles</c>, so each type parses with its own default — <c>float</c> allows a thousands
+    /// separator, and so reads <c>3,14</c> as <c>314</c>, while <c>int</c> does not. Not available on
+    /// <c>net48</c>, which has no <c>IParsable&lt;T&gt;</c>.
+    /// </remarks>
+    /// <example><c>ini |&gt; Ini.tryFindValueAs&lt;int&gt; "server:port"</c></example>
+    val tryFindValueAs<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
+#endif
+
     /// <summary>Looks up one key, walking up the section hierarchy.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
     /// <param name="ini">The document.</param>
@@ -443,28 +506,27 @@ module Ini =
     /// </example>
     val tryFindNested: key: string -> ini: Ini -> string option
 
-    /// <summary>Looks up one key, exactly. The partial counterpart of <c>tryFind</c>.</summary>
-    /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
-    /// <param name="ini">The document.</param>
-    /// <returns>The value.</returns>
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
-    /// The document holds no such key.
-    /// </exception>
-    val find: key: string -> ini: Ini -> string
-
+#if NET10_0_OR_GREATER
     /// <summary>
-    /// Looks up one key, walking up the section hierarchy. The partial counterpart of
-    /// <c>tryFindNested</c>.
+    /// Looks up one key, walking up the section hierarchy, and parses it as any <c>IParsable</c> type.
     /// </summary>
+    /// <typeparam name="T">The type to parse the value as, any type implementing <c>IParsable&lt;T&gt;</c>.</typeparam>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>
     /// <param name="ini">The document.</param>
-    /// <returns>The value found in the given section, in its nearest dotted ancestor, or in the root.</returns>
+    /// <returns>
+    /// <c>Some</c> of <c>Ok</c> of the parsed value when the key is found, <c>Some</c> of <c>Error</c> of
+    /// <c>InvalidValue</c> when the value found does not parse, or <c>None</c> when none of the given
+    /// section, its nearest dotted ancestors nor the root section holds the parameter.
+    /// </returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
-    /// <exception cref="T:System.Collections.Generic.KeyNotFoundException">
-    /// Neither the section nor any of its ancestors nor the root holds the parameter.
-    /// </exception>
-    val findNested: key: string -> ini: Ini -> string
+    /// <remarks>
+    /// Walks the section hierarchy by the rules <c>tryFindNested</c> uses. Parsing follows
+    /// <c>T.TryParse</c> with <c>CultureInfo.InvariantCulture</c>. Not available on <c>net48</c>, which
+    /// has no <c>IParsable&lt;T&gt;</c>.
+    /// </remarks>
+    /// <example><c>ini |&gt; Ini.tryFindNestedValueAs&lt;int&gt; "server.dev:port"</c></example>
+    val tryFindNestedValueAs<'T when 'T :> IParsable<'T>> : key: string -> ini: Ini -> Result<'T, ParserError> option
+#endif
 
     /// <summary>Removes one parameter.</summary>
     /// <param name="key">The key, of the form <c>section:parameter</c>.</param>

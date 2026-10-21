@@ -393,6 +393,89 @@ let ``tryFindNested does not search sibling or child sections`` () =
     Assert.Equal<string option>(None, Ini.tryFindNested "alpha.gamma:x" ini)
     Assert.Equal<string option>(None, Ini.tryFindNested "alpha:x" ini)
 
+// ---------------------------------------------------------------- generic lookup
+
+[<Fact>]
+let ``tryFindValueAs parses any IParsable type`` () =
+    let ini =
+        create [ "guid = 0f8fad5b-d9cb-469f-a165-70867728950e"; "span = 00:05:00"; "date = 2026-10-21" ]
+
+    Assert.Equal<Result<Guid, ParserError> option>(
+        Some(Ok(Guid "0f8fad5b-d9cb-469f-a165-70867728950e")),
+        Ini.tryFindValueAs<Guid> "guid" ini
+    )
+
+    Assert.Equal<Result<TimeSpan, ParserError> option>(Some(Ok(TimeSpan.FromMinutes 5.0)), Ini.tryFindValueAs<TimeSpan> "span" ini)
+
+    Assert.Equal<Result<DateOnly, ParserError> option>(Some(Ok(DateOnly(2026, 10, 21))), Ini.tryFindValueAs<DateOnly> "date" ini)
+
+[<Fact>]
+let ``tryFindValueAs reports an unparsable value as InvalidValue`` () =
+    let ini = create [ "x = nope" ]
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindValueAs<int> "x" ini)
+
+[<Fact>]
+let ``tryFindValueAs parses numbers under the invariant culture`` () =
+    let ini = create [ "x = 3.14"; "y = 1,234" ]
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 3.14), Ini.tryFindValueAs<float> "x" ini)
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 1234.0), Ini.tryFindValueAs<float> "y" ini)
+
+[<Fact>]
+let ``tryFindValueAs rejects a thousands separator in an integer`` () =
+    let ini = create [ "x = 1,234" ]
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "1,234")), Ini.tryFindValueAs<int> "x" ini)
+
+[<Fact>]
+let ``tryFindValueAs returns None for a missing key`` () =
+    let ini = create [ "x = 42" ]
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> "nope" ini)
+
+[<Fact>]
+let ``tryFindValueAs never walks the section hierarchy`` () =
+    let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> "alpha:x" ini)
+
+[<Fact>]
+let ``tryFindNestedValueAs falls back to the parent section`` () =
+    let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), Ini.tryFindNestedValueAs<int> "alpha.beta:x" ini)
+
+[<Fact>]
+let ``tryFindNestedValueAs reports an unparsable value as InvalidValue`` () =
+    let ini = create [ "x = nope"; "[alpha]"; "y = 1" ]
+
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindNestedValueAs<int> "alpha:x" ini)
+
+[<Fact>]
+let ``tryFindNestedValueAs returns None when no ancestor has the parameter`` () =
+    let ini = create [ "[alpha]"; "x = 42" ]
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValueAs<int> "alpha.beta:nope" ini)
+
+[<Fact>]
+let ``the generic lookups reject a null key`` () =
+    let ini = create [ "x = 1" ]
+
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindValueAs<int> null ini |> ignore) |> ignore
+
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNestedValueAs<int> null ini |> ignore)
+    |> ignore
+
+[<Theory>]
+[<InlineData("")>]
+[<InlineData(" ")>]
+[<InlineData("   ")>]
+[<InlineData("\t")>]
+let ``the generic lookups do not guard a blank key`` key =
+    let ini = create [ "x = 1" ]
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValueAs<int> key ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValueAs<int> key ini)
+
+[<Fact>]
+let ``the generic members agree with the generic functions`` () =
+    let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindValue<int> "x")
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindNestedValue<int> "alpha:x")
+
 // ---------------------------------------------------------------- equality
 
 [<Fact>]
@@ -644,46 +727,6 @@ let ``remove ignores an invalid key`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
     Assert.Equal<Ini>(ini, ini |> Ini.remove "a b")
 
-// ---------------------------------------------------------------- find
-
-[<Fact>]
-let ``find returns the value`` () =
-    let ini = create [ "x = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal("1", ini |> Ini.find "alpha:x")
-    Assert.Equal("0", ini |> Ini.find "x")
-    Assert.Equal("1", ini |> Ini.find "ALPHA:X")
-
-[<Fact>]
-let ``find raises for a missing key`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.find "alpha:nope" |> ignore) |> ignore
-    Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.find "x" |> ignore) |> ignore
-
-[<Fact>]
-let ``findNested walks the hierarchy up to the root`` () =
-    let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal("1", ini |> Ini.findNested "alpha.beta:x")
-    Assert.Equal("0", ini |> Ini.findNested "alpha.beta:root")
-
-[<Fact>]
-let ``findNested raises for a key no ancestor has`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-
-    Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.findNested "alpha.beta:nope" |> ignore)
-    |> ignore
-
-    Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.findNested "beta:x" |> ignore) |> ignore
-
-[<Fact>]
-let ``find and findNested fail the same way`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-
-    let direct = Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.find "alpha:nope" |> ignore)
-
-    let nested = Assert.Throws<KeyNotFoundException>(fun () -> ini |> Ini.findNested "alpha:nope" |> ignore)
-
-    Assert.Equal(direct.Message, nested.Message)
-
 // ---------------------------------------------------------------- argument checks
 
 [<Fact>]
@@ -709,8 +752,6 @@ let ``lookups reject a null key`` () =
     Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFind null ini |> ignore) |> ignore
     Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNested null ini |> ignore) |> ignore
     Assert.Throws<ArgumentNullException>(fun () -> Ini.containsKey null ini |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.find null ini |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.findNested null ini |> ignore) |> ignore
 
 [<Fact>]
 let ``mutations reject a null key`` () =
@@ -733,8 +774,6 @@ let ``lookups do not guard a blank key`` key =
     Assert.Equal<string option>(None, Ini.tryFind key ini)
     Assert.Equal<string option>(None, Ini.tryFindNested key ini)
     Assert.False(Ini.containsKey key ini)
-    Assert.Throws<KeyNotFoundException>(fun () -> Ini.find key ini |> ignore) |> ignore
-    Assert.Throws<KeyNotFoundException>(fun () -> Ini.findNested key ini |> ignore) |> ignore
 
 [<Theory>]
 [<InlineData("")>]
@@ -1273,7 +1312,7 @@ let ``toLines is aligned with keys and values`` () =
     let rendered =
         lines ini
         |> List.filter (fun line -> line <> "" && not (line.StartsWith "["))
-        |> List.map (fun line -> line.Split(" = ")[1])
+        |> List.map (fun line -> line.Split([| " = " |], StringSplitOptions.None)[1])
 
     Assert.Equal<string list>(values ini, rendered)
 
@@ -1342,7 +1381,14 @@ let ``a value containing a newline renders as something the parser rejects`` () 
     let ini = added "x" $"a{Environment.NewLine}b" Ini.empty
 
     Assert.Equal<string list>([ $"x = a{Environment.NewLine}b" ], lines ini)
-    Assert.Equal<ParserError>(InvalidLine "b", error (Ini.toLines ini |> Seq.collect (fun line -> line.Split Environment.NewLine)))
+
+    Assert.Equal<ParserError>(
+        InvalidLine "b",
+        error (
+            Ini.toLines ini
+            |> Seq.collect (fun line -> line.Split([| Environment.NewLine |], StringSplitOptions.None))
+        )
+    )
 
 // ---------------------------------------------------------------- toFile
 
@@ -1461,8 +1507,10 @@ let ``a parser error can be matched on its case`` () =
     match error [ "oops" ] with
     | InvalidLine line -> Assert.Equal("oops", line)
     | InvalidKey key -> failwith $"expected InvalidLine, got InvalidKey %s{key}"
+    | InvalidValue value -> failwith $"expected InvalidLine, got InvalidValue %s{value}"
 
 [<Fact>]
 let ``a parser error names its case and its text`` () =
     Assert.Equal("InvalidLine \"oops\"", string (InvalidLine "oops"))
     Assert.Equal("InvalidKey \"a b\"", string (InvalidKey "a b"))
+    Assert.Equal("InvalidValue \"a\"", string (InvalidValue "a"))

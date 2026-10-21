@@ -3,6 +3,7 @@
 open System
 open System.Collections
 open System.Collections.Generic
+open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
 
@@ -10,25 +11,44 @@ open System.Text.RegularExpressions
 module private Operators =
     let inline (<!>) arg func = Result.map func arg
 
+    let inline (<?>) arg func = Option.map func arg
+
 [<AutoOpen>]
 module internal Guards =
-    let inline requireNonNull paramName (argument: 'T) =
+    let inline private throwIfNull (paramName: string) (argument: 'T) =
+#if NET10_0_OR_GREATER
         ArgumentNullException.ThrowIfNull(argument, paramName)
+#else
+        if box argument |> isNull then
+            ArgumentNullException paramName |> raise
+#endif
+
+    let inline requireNonNull paramName (argument: 'T) =
+        throwIfNull paramName argument
         argument
 
     let inline requireNonNullSeq paramName (argument: 'T seq) =
-        ArgumentNullException.ThrowIfNull(argument, paramName)
+        throwIfNull paramName argument
         argument
 
     let inline requireNonNullKeyValue paramName (argument: KeyValuePair<'K, 'V>) =
-        ArgumentNullException.ThrowIfNull(argument.Key, $"{paramName}.{nameof argument.Key}")
-        ArgumentNullException.ThrowIfNull(argument.Value, $"{paramName}.{nameof argument.Value}")
+        throwIfNull $"{paramName}.{nameof argument.Key}" argument.Key
+        throwIfNull $"{paramName}.{nameof argument.Value}" argument.Value
         argument
 
     let inline requireNonNullTuple paramName (argument: 'K * 'V) =
-        ArgumentNullException.ThrowIfNull(fst argument, $"{paramName}.{nameof fst}")
-        ArgumentNullException.ThrowIfNull(snd argument, $"{paramName}.{nameof snd}")
+        throwIfNull $"{paramName}.{nameof fst}" (fst argument)
+        throwIfNull $"{paramName}.{nameof snd}" (snd argument)
         argument
+
+[<AutoOpen>]
+module internal Hash =
+    let inline combine (first: int) (second: int) =
+#if NET10_0_OR_GREATER
+        HashCode.Combine(first, second)
+#else
+        ((first <<< 5) + first) ^^^ second
+#endif
 
 [<AutoOpen>]
 module internal Enumerator =
@@ -123,7 +143,7 @@ type internal Key =
         | _ -> false
 
     override m.GetHashCode() =
-        HashCode.Combine(m.Section.GetHashCode(), comparer.GetHashCode m.Parameter)
+        combine (m.Section.GetHashCode()) (comparer.GetHashCode m.Parameter)
 
 [<RequireQualifiedAccess>]
 module internal Key =
@@ -137,6 +157,9 @@ module internal Key =
 type ParserError =
     | InvalidKey of Key: string
     | InvalidLine of Line: string
+#if NET10_0_OR_GREATER
+    | InvalidValue of Value: string
+#endif
 
 [<AutoOpen>]
 module internal Parser =
@@ -211,6 +234,13 @@ module internal Parser =
         | Ok key -> Ok(key, snd tuple)
         | Error err -> Error err
 
+#if NET10_0_OR_GREATER
+    let tryParseValue<'T when 'T :> IParsable<'T>> value =
+        match 'T.TryParse(value, CultureInfo.InvariantCulture) with
+        | true, result -> Ok result
+        | false, _ -> InvalidValue value |> Error
+#endif
+
 [<RequireQualifiedAccess>]
 module internal KeyValuePair =
     let inline toStringKey (kvp: KeyValuePair<Key, string>) = KeyValuePair(kvp.Key.Path, kvp.Value)
@@ -260,6 +290,10 @@ module internal Map =
 
     let tryFind key map = Map.tryFind (Key.create key) map
 
+#if NET10_0_OR_GREATER
+    let tryFindValue<'T when 'T :> IParsable<'T>> key map = tryFind key map <?> tryParseValue<'T>
+#endif
+
     let tryFindNested key map =
         let key = Key.create key
 
@@ -275,6 +309,10 @@ module internal Map =
                     | index -> loop { Name = section.Name[.. index - 1] }
 
         loop key.Section
+
+#if NET10_0_OR_GREATER
+    let tryFindNestedValue key map = tryFindNested key map <?> tryParseValue
+#endif
 
     let find key map = Map.find (Key.create key) map
 
@@ -361,11 +399,15 @@ type Ini =
 
     member m.TryFind key = Map.tryFind key m.Map
 
+#if NET10_0_OR_GREATER
+    member m.TryFindValue key = Map.tryFindValue key m.Map
+#endif
+
     member m.TryFindNested key = Map.tryFindNested key m.Map
 
-    member m.Find key = Map.find key m.Map
-
-    member m.FindNested key = Map.findNested key m.Map
+#if NET10_0_OR_GREATER
+    member m.TryFindNestedValue key = Map.tryFindNestedValue key m.Map
+#endif
 
     member m.Remove key = Map.remove key m.Map |> create
 
@@ -419,11 +461,15 @@ module Ini =
 
     let tryFind key (ini: Ini) = ini.TryFind key
 
+#if NET10_0_OR_GREATER
+    let tryFindValueAs key (ini: Ini) = ini.TryFindValue key
+#endif
+
     let tryFindNested key (ini: Ini) = ini.TryFindNested key
 
-    let find key (ini: Ini) = ini.Find key
-
-    let findNested key (ini: Ini) = ini.FindNested key
+#if NET10_0_OR_GREATER
+    let tryFindNestedValueAs key (ini: Ini) = ini.TryFindNestedValue key
+#endif
 
     let remove key (ini: Ini) = ini.Remove key
 

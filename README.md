@@ -20,7 +20,7 @@ the same keys and values, and the whole model is flat — one parameter per key,
 dotnet add package Fini --prerelease
 ```
 
-Targets `net10.0`. The only dependency is `FSharp.Core`.
+Targets `net10.0` and `net48`. The only dependency is `FSharp.Core`.
 
 ## Quick start
 
@@ -48,14 +48,17 @@ match Ini.fromFile "app.ini" with
 | Ok ini ->
 
 // exact lookup
-ini |> Ini.find "server:host"              // "localhost"
-ini |> Ini.tryFind "server.dev:host"       // None
-ini |> Ini.tryFind "timeout"               // Some "30" — no colon means the root section
+ini |> Ini.tryFind "server:host"              // Some "localhost"
+ini |> Ini.tryFind "server.dev:host"          // None
+ini |> Ini.tryFind "timeout"                  // Some "30" — no colon means the root section
 
 // lookup that walks up the section hierarchy
-ini |> Ini.findNested "server.dev:port"    // "5000"  — from the section itself
-ini |> Ini.findNested "server.dev:host"    // "localhost" — inherited from [server]
-ini |> Ini.findNested "server.dev:timeout" // "30"    — inherited from the root
+ini |> Ini.tryFindNested "server.dev:port"    // Some "5000"  — from the section itself
+ini |> Ini.tryFindNested "server.dev:host"    // Some "localhost" — inherited from [server]
+ini |> Ini.tryFindNested "server.dev:timeout" // Some "30"    — inherited from the root
+
+// lookup that parses the value — any IParsable type, net10.0 only
+ini |> Ini.tryFindValueAs<int> "server:port"  // Some (Ok 8080)
 ```
 
 Building a document, and rendering it back:
@@ -89,8 +92,8 @@ if (result.IsError)
 
 Ini ini = result.ResultValue;
 
-string host = ini.Find("server:host");           // "localhost"
-string port = ini.FindNested("server.dev:port"); // "5000"
+string? host = ini.TryFind("server:host")?.Value;           // "localhost"
+string? port = ini.TryFindNested("server.dev:port")?.Value; // "5000"
 
 // a miss is null, so an option pattern reads naturally
 if (ini.TryFind("server:tls") is { Value: var tls })
@@ -180,8 +183,8 @@ so `x` and `:x` are the same key. Keys are compared `OrdinalIgnoreCase` in both 
 | `a:b:c`           | `InvalidKey` — two colons             |
 
 Keys are never trimmed or repaired, so a key the parser would reject is simply absent on the way out:
-`TryFind` gives `None`, `ContainsKey` gives `false`, `Remove` is a no-op and `Find` raises. On the way out a
-root parameter is written in full, so `keys` and enumeration give `:timeout`, not `timeout`.
+`TryFind` gives `None`, `ContainsKey` gives `false` and `Remove` is a no-op. On the way out a root
+parameter is written in full, so `keys` and enumeration give `:timeout`, not `timeout`.
 
 ## File format
 
@@ -200,7 +203,7 @@ be reopened later on. Parsing is a single lazy pass that stops at the first unpa
 file with a bad line at position 3 reads three lines.
 
 Sections do not nest in the file: `[server.dev]` is a name of its own, stored verbatim. The dots only matter
-to `findNested` / `FindNested`, which walk up from `server.dev` to `server` to the root.
+to `tryFindNested` / `TryFindNested`, which walk up from `server.dev` to `server` to the root.
 
 ## Rendering
 
@@ -235,6 +238,33 @@ lists the distinct names (`""` for the root). Dotted children are sections of th
 ini |> Ini.section "server" |> Ini.toLines   // seq [ "[server]"; "host = localhost"; "port = 8080" ]
 ```
 
+## Typed lookup
+
+One generic lookup parses the value it finds as any `IParsable<T>` — the primitives, `Guid`, `DateTime`,
+`TimeSpan`, and your own types — under `CultureInfo.InvariantCulture`. It returns an option of a result:
+`None` for a missing key, `Some (Error (InvalidValue value))` for a value that does not parse.
+
+```fsharp
+ini |> Ini.tryFindValueAs<int> "server:port"            // Some (Ok 8080)
+ini |> Ini.tryFindValueAs<Guid> "server:id"             // Some (Ok ...)
+ini |> Ini.tryFindNestedValueAs<TimeSpan> "server.dev:timeout"
+```
+
+```csharp
+if (ini.TryFindValue<int>("server:port") is { Value: { IsOk: true, ResultValue: var port } })
+{
+    Console.WriteLine(port);
+}
+```
+
+`IParsable<T>` takes no `NumberStyles`, so each type parses with its own default: `tryFindValueAs<float>`
+accepts a thousands separator and so reads `"1,234"` as `Ok 1234.0`, where `tryFindValueAs<int>` does not
+and gives `Error (InvalidValue "1,234")`.
+
+`TryFindValue` / `TryFindNestedValue` and `tryFindValueAs` / `tryFindNestedValueAs` are compiled only into
+the `net10.0` build — `net48` has no `IParsable<T>`, and so no parsing lookup and no `InvalidValue` case
+on `ParserError`.
+
 ## Errors
 
 Content failures are returned, not raised:
@@ -243,15 +273,22 @@ Content failures are returned, not raised:
 type ParserError =
     | InvalidKey of Key: string
     | InvalidLine of Line: string
+    | InvalidValue of Value: string // net10.0 only
 ```
 
 Each case carries the offending text verbatim. A missing key is an answer rather than a failure:
-`tryFind` / `tryFindNested` return an option, `find` / `findNested` are their partial counterparts and
-raise `KeyNotFoundException`. A `null` argument and a filesystem problem are raised.
+`tryFind` / `tryFindNested` return an option. Their parsing counterparts `tryFindValueAs` /
+`tryFindNestedValueAs` return an option of a result, `Some (Error (InvalidValue value))` when the key is
+found but its value does not parse. A `null` argument and a filesystem problem are raised.
 
-From C# the cases are nested types that carry their payload under the field name — `((ParserError.InvalidKey)err).Key`
-and `((ParserError.InvalidLine)err).Line` — with `IsInvalidKey` / `IsInvalidLine` to test one and
-`NewInvalidKey` / `NewInvalidLine` to build one.
+`InvalidValue` only ever comes out of those two, and both they and the case itself are compiled only into
+the `net10.0` build: on `net48` the type has two cases, so a match that handles `InvalidValue` does not
+compile there.
+
+From C# the cases are nested types that carry their payload under the field name — `((ParserError.InvalidKey)err).Key`,
+`((ParserError.InvalidLine)err).Line` and, on `net10.0`, `((ParserError.InvalidValue)err).Value` — with
+`IsInvalidKey` / `IsInvalidLine` / `IsInvalidValue` to test one and `NewInvalidKey` / `NewInvalidLine` /
+`NewInvalidValue` to build one.
 
 ## API
 
@@ -267,9 +304,9 @@ The type and the module carry the same operations; the module functions take the
 | `ini.AppendFile path`            | `Ini.appendFile path ini`               | `Result<Ini, ParserError>`    |
 | `ini.Add(key, value)`            | `Ini.add key value ini`                 | `Result<Ini, ParserError>`    |
 | `ini.TryFind key`                | `Ini.tryFind key ini`                   | `string option`               |
+| `ini.TryFindValue<T> key`        | `Ini.tryFindValueAs<'T> key ini`        | `Result<'T, ParserError> option` — `net10.0` only |
 | `ini.TryFindNested key`          | `Ini.tryFindNested key ini`             | `string option`               |
-| `ini.Find key`                   | `Ini.find key ini`                      | `string`                      |
-| `ini.FindNested key`             | `Ini.findNested key ini`                | `string`                      |
+| `ini.TryFindNestedValue<T> key`  | `Ini.tryFindNestedValueAs<'T> key ini`  | `Result<'T, ParserError> option` — `net10.0` only |
 | `ini.Remove key`                 | `Ini.remove key ini`                    | `Ini`                         |
 | `ini.ContainsKey key`            | `Ini.containsKey key ini`               | `bool`                        |
 | `ini.IsEmpty`                    | `Ini.isEmpty ini`                       | `bool`                        |

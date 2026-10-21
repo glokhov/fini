@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks>net10.0;net48</TargetFrameworks>
         <LangVersion>latest</LangVersion>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -18,8 +18,12 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>0.3.0-rc4</Version>
+        <Version>0.3.0-rc5</Version>
     </PropertyGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    </ItemGroup>
 
     <ItemGroup>
         <None Include="../../../README.md" Pack="true" Visible="false" PackagePath="/" />
