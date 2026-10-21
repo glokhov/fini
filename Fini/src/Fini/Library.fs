@@ -7,6 +7,10 @@ open System.IO
 open System.Text.RegularExpressions
 
 [<AutoOpen>]
+module private Operators =
+    let inline (<!>) arg func = Result.map func arg
+
+[<AutoOpen>]
 module internal Guards =
     let inline requireNonNull paramName (argument: 'T) =
         ArgumentNullException.ThrowIfNull(argument, paramName)
@@ -250,11 +254,8 @@ module internal Map =
         loop map Empty
 
     let add key value map =
-        let key = requireNonNull (nameof key) key
-        let value = requireNonNull (nameof value) value
-
-        match tryParseKey key with
-        | Ok key -> Map.add key value map |> Ok
+        match tryParseKey (requireNonNull (nameof key) key) with
+        | Ok key -> Map.add key (requireNonNull (nameof value) value) map |> Ok
         | Error err -> Error err
 
     let tryFind key map = Map.tryFind (Key.create key) map
@@ -334,7 +335,61 @@ type Ini =
     private
         { Map: Map<Key, string> }
 
-    member private m.KeyValuePairs = m.Map |> Seq.map KeyValuePair.toStringKey
+    static let create map = { Map = map }
+
+    static let empty = { Map = Map.empty }
+
+    static member Empty = empty
+
+    static member Create pairs =
+        Map.create pairs requireNonNullKeyValue tryParseKeyValue <!> create
+
+    static member OfSeq pairs =
+        Map.create pairs requireNonNullTuple tryParseTuple <!> create
+
+    static member FromFile path = Map.appendLines (readLines path) Map.empty <!> create
+
+    static member FromLines lines = Map.appendLines lines Map.empty <!> create
+
+    member m.AppendFile path = Map.appendLines (readLines path) m.Map <!> create
+
+    member m.AppendLines lines = Map.appendLines lines m.Map <!> create
+
+    member m.IsEmpty = Map.isEmpty m.Map
+
+    member m.Add(key, value) = Map.add key value m.Map <!> create
+
+    member m.TryFind key = Map.tryFind key m.Map
+
+    member m.TryFindNested key = Map.tryFindNested key m.Map
+
+    member m.Find key = Map.find key m.Map
+
+    member m.FindNested key = Map.findNested key m.Map
+
+    member m.Remove key = Map.remove key m.Map |> create
+
+    member m.Count = Map.count m.Map
+
+    member m.ContainsKey key = Map.containsKey key m.Map
+
+    member m.Keys = Map.keys m.Map
+
+    member m.Values = Map.values m.Map
+
+    member m.Sections = Map.sections m.Map
+
+    member m.Section name = Map.section name m.Map |> create
+
+    member m.RemoveSection name = Map.removeSection name m.Map |> create
+
+    member m.ToLines() = Map.toLines m.Map
+
+    member m.ToFile path = Map.toFile path m.Map
+
+    member m.KeyValuePairs = m.Map |> Seq.map KeyValuePair.toStringKey
+
+    member m.Tuples = m.Map |> Seq.map Tuple.toStringKey
 
     interface IEnumerable<KeyValuePair<string, string>> with
         member m.GetEnumerator() = m.KeyValuePairs.GetEnumerator()
@@ -346,101 +401,50 @@ type Ini =
 
 [<RequireQualifiedAccess>]
 module Ini =
-    let private ctr map = { Map = map }
+    let empty = Ini.Empty
 
-    let empty = { Map = Map.empty }
+    let inline ofSeq pairs = Ini.OfSeq pairs
 
-    let create pairs =
-        Map.create pairs requireNonNullKeyValue tryParseKeyValue |> Result.map ctr
+    let inline appendLines lines (ini: Ini) = ini.AppendLines lines
 
-    let ofSeq pairs =
-        Map.create pairs requireNonNullTuple tryParseTuple |> Result.map ctr
+    let inline appendFile path (ini: Ini) = ini.AppendFile path
 
-    let appendLines lines ini = Map.appendLines lines ini.Map |> Result.map ctr
+    let inline fromLines lines = Ini.FromLines lines
 
-    let appendFile path ini = appendLines (readLines path) ini
+    let inline fromFile path = Ini.FromFile path
 
-    let fromLines lines = appendLines lines empty
+    let inline isEmpty (ini: Ini) = ini.IsEmpty
 
-    let fromFile path = appendFile path empty
+    let inline add key value (ini: Ini) = ini.Add(key, value)
 
-    let isEmpty ini = Map.isEmpty ini.Map
+    let inline tryFind key (ini: Ini) = ini.TryFind key
 
-    let add key value ini = Map.add key value ini.Map |> Result.map ctr
+    let inline tryFindNested key (ini: Ini) = ini.TryFindNested key
 
-    let tryFind key ini = Map.tryFind key ini.Map
+    let inline find key (ini: Ini) = ini.Find key
 
-    let tryFindNested key ini = Map.tryFindNested key ini.Map
+    let inline findNested key (ini: Ini) = ini.FindNested key
 
-    let find key ini = Map.find key ini.Map
+    let inline remove key (ini: Ini) = ini.Remove key
 
-    let findNested key ini = Map.findNested key ini.Map
+    let inline count (ini: Ini) = ini.Count
 
-    let remove key ini = Map.remove key ini.Map |> ctr
+    let inline containsKey key (ini: Ini) = ini.ContainsKey key
 
-    let count ini = Map.count ini.Map
+    let inline keys (ini: Ini) = ini.Keys
 
-    let containsKey key ini = Map.containsKey key ini.Map
+    let inline values (ini: Ini) = ini.Values
 
-    let keys ini = Map.keys ini.Map
+    let inline sections (ini: Ini) = ini.Sections
 
-    let values ini = Map.values ini.Map
+    let inline section name (ini: Ini) = ini.Section name
 
-    let sections ini = Map.sections ini.Map
+    let inline removeSection name (ini: Ini) = ini.RemoveSection name
 
-    let section name ini = Map.section name ini.Map |> ctr
+    let inline toSeq (ini: Ini) = ini.Tuples
 
-    let removeSection name ini = Map.removeSection name ini.Map |> ctr
+    let inline toLines (ini: Ini) = ini.ToLines()
 
-    let toSeq ini = ini.Map |> Seq.map Tuple.toStringKey
+    let inline toFile path (ini: Ini) = ini.ToFile path
 
-    let toLines ini = Map.toLines ini.Map
-
-    let toFile path ini = Map.toFile path ini.Map
-
-    let toString ini = Map.toString ini.Map
-
-type Ini with
-    static member Empty = Ini.empty
-
-    static member Create pairs = Ini.create pairs
-
-    static member FromFile path = Ini.fromFile path
-
-    static member FromLines lines = Ini.fromLines lines
-
-    member m.AppendFile path = Ini.appendFile path m
-
-    member m.AppendLines lines = Ini.appendLines lines m
-
-    member m.IsEmpty = Ini.isEmpty m
-
-    member m.Add(key, value) = Ini.add key value m
-
-    member m.TryFind key = Ini.tryFind key m
-
-    member m.TryFindNested key = Ini.tryFindNested key m
-
-    member m.Find key = Ini.find key m
-
-    member m.FindNested key = Ini.findNested key m
-
-    member m.Remove key = Ini.remove key m
-
-    member m.Count = Ini.count m
-
-    member m.ContainsKey key = Ini.containsKey key m
-
-    member m.Keys = Ini.keys m
-
-    member m.Values = Ini.values m
-
-    member m.Sections = Ini.sections m
-
-    member m.Section name = Ini.section name m
-
-    member m.RemoveSection name = Ini.removeSection name m
-
-    member m.ToLines() = Ini.toLines m
-
-    member m.ToFile path = Ini.toFile path m
+    let inline toString (ini: Ini) = ini.ToString()
