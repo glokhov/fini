@@ -7,12 +7,12 @@
 A simple INI parser written in F#, usable from F# and C# alike.
 
 > [!WARNING]
-> Version 0.3.0 is a complete rewrite of version 0.2.1 and is **not** source- or binary-compatible with it.
-> The document model and the entire API surface have changed — key shape, error handling, and a first-class
-> C# surface are all new. Upgrading from version 0.2.1 means migrating code.
+> Version 0.3.0 is a complete rewrite of version 0.2.1 and is **not** compatible with it, in source or in binary form.
+> Keys, error handling and the C# API have all changed, so code written for 0.2.1 has to be updated.
 
-A document is **immutable**: every operation that would change it returns a new one, two documents are equal when they hold
-the same keys and values, and the whole model is flat — one parameter per key, keyed `section:parameter`.
+Documents are **immutable**: any operation that changes a document returns a new one instead. Two documents are
+equal if they have the same keys and values. The structure is flat: each value is stored under one key of the form
+`section:parameter`.
 
 ## Install
 
@@ -81,16 +81,15 @@ string? iTimeout = ini.TryFindNested("server.dev:timeout")?.Value; // "30"     �
 int? port = ini.TryFindValue<int>("server:port") is { Value: { IsOk: true, ResultValue: var p } } ? p : null; // 8080 — net10.0 only
 ```
 
-The F# surface is the `Ini` module, its functions taking the document last so they compose with `|>`. The C#
-surface is the members of the `Ini` type. Both return the same F# `option` and `Result` values; from C# they
-are `FSharpOption<T>` and `FSharpResult<T, TError>` in `Microsoft.FSharp.Core`, ordinary .NET types that a C#
-switch expression reads directly. Every example below is given in both languages, F# `match` mirrored by a C#
-`switch`.
+F# code uses the functions in the `Ini` module. They take the document as the last argument, so they work with
+`|>`. C# code uses the methods and properties of the `Ini` type. Both return the same F# `option` and `Result`
+types. In C# these are `FSharpOption<T>` and `FSharpResult<T, TError>` from `Microsoft.FSharp.Core`, and you can
+match on them with any C# pattern matching: `switch` expressions, `switch` statements and `is`. Every example below is shown in both languages.
 
 ## Lookups return an option
 
-A missing key is an answer, not a failure: `tryFind` / `TryFind` and `tryFindNested` / `TryFindNested`
-return `Some value` or `None`.
+A missing key is not an error. `tryFind` / `TryFind` and `tryFindNested` / `TryFindNested` return
+`Some value` if the key exists and `None` if it doesn't.
 
 F#:
 
@@ -121,9 +120,9 @@ let timeout =
     | None -> "default timeout"
 ```
 
-C#: an option is a class whose `None` is `null`, so `Some` is a property pattern on `Value` and `None` is
-the `null` arm. A `null` never matches a property pattern, so the two arms cover every case and the compiler
-needs no discard.
+C#: an option is a class, and `None` is `null`. Match `Some` with a property pattern on `Value`, and `None`
+with `null`. A `null` never matches a property pattern, so these two arms cover every case and no `_` arm is
+needed.
 
 ```csharp
 // both cases
@@ -156,15 +155,14 @@ string timeout = ini.TryFind("timeout") switch
 };
 ```
 
-Reading `Value` on a `None` throws `NullReferenceException`; the `null` arm is what keeps it from being
-read. The `IsSome` / `IsNone` members compile to static helpers that C# cannot call. `var` keeps
-`Microsoft.FSharp.Core` out of the `using` list; name the type only when you need to, as
-`FSharpOption<string>`.
+Reading `Value` on a `None` throws `NullReferenceException`, and the `null` arm is what prevents that. The
+`IsSome` and `IsNone` members can't be called from C#, because F# compiles them as static helpers. With `var`
+you don't need `using Microsoft.FSharp.Core`; write out `FSharpOption<string>` only when you need the type name.
 
 ## Building and parsing return a result
 
-Everything that reads a key or a line it might reject — `fromLines`, `fromFile`, `appendLines`,
-`appendFile`, `add`, `ofSeq` — returns `Ok ini` or `Error err`.
+Functions that can reject a key or a line return `Ok ini` or `Error err`. These are `fromLines`, `fromFile`,
+`appendLines`, `appendFile`, `add` and `ofSeq`.
 
 F#:
 
@@ -181,7 +179,7 @@ let config =
     | Ok ini -> ini
     | Error _ -> Ini.empty
 
-// chaining — each step runs only on Ok, so the first error is the one kept
+// chaining — each step runs only if the previous one succeeded, so you get the first error
 let built =
     match Ini.empty |> Ini.add "timeout" "30" with
     | Ok ini -> ini |> Ini.add "server:host" "localhost"
@@ -193,12 +191,13 @@ let built' =
     | Error err -> Error err
 ```
 
-`Result.bind` is the shorthand for the chaining match:
+`Result.bind` does the same chaining with less code:
 `Ini.empty |> Ini.add "timeout" "30" |> Result.bind (Ini.add "server:host" "localhost")`.
 
-C#: a result is a struct — never null, with no case classes to match on. It holds both `ResultValue` and
-`ErrorValue`, and the one it does not hold reads as `default`. A document is never null on `Ok`, so
-`{ ResultValue: { } ini }` is the `Ok` arm and `{ ErrorValue: var err }` after it is the `Error` arm.
+C#: a result is a struct, so it is never `null`, and it has no case classes to match on. Instead it has both
+a `ResultValue` and an `ErrorValue` property, and the one that isn't set is `default`. On success the document
+is never `null`, so `{ ResultValue: { } ini }` matches `Ok`, and `{ ErrorValue: var err }` after it matches
+`Error`.
 
 ```csharp
 // both cases
@@ -215,7 +214,7 @@ Ini config = Ini.FromFile("app.ini") switch
     { ErrorValue: _ } => Ini.Empty
 };
 
-// chaining — each step runs only on Ok, so the first error is the one kept
+// chaining — each step runs only if the previous one succeeded, so you get the first error
 var built = Ini.Empty.Add("timeout", "30") switch
 {
     { ResultValue: { } ini } => ini.Add("server:host", "localhost"),
@@ -229,12 +228,12 @@ built = built switch
 };
 ```
 
-When the payload is a value type, as in the typed lookups below, `ResultValue` is `0` or `false` rather than
-`null` on an error, so the `ErrorValue: { } err` arm goes first — a `ParserError` is never null.
+This doesn't work when the result holds a value type, as with the typed lookups below. On an error,
+`ResultValue` is then `0` or `false`, not `null`, so the `Ok` arm also checks `IsOk: true`.
 
 ## Errors
 
-Content failures are returned, not raised:
+Problems with the content are returned as errors, not thrown:
 
 ```fsharp
 type ParserError =
@@ -243,9 +242,9 @@ type ParserError =
     | InvalidValue of Value: string // net10.0 only
 ```
 
-Each case carries the offending text verbatim. `InvalidKey` comes from `add` / `ofSeq`, `InvalidLine` from
-the four parsing functions, `InvalidValue` from the typed lookups. A `null` argument and a filesystem problem
-are raised as exceptions.
+Each case holds the exact text that caused the problem. `add` and `ofSeq` return `InvalidKey`, the four
+parsing functions return `InvalidLine`, and the typed lookups return `InvalidValue`. A `null` argument or a
+file system problem throws an exception.
 
 F#:
 
@@ -265,8 +264,8 @@ let report =
 let expected = InvalidLine "oops"
 ```
 
-C#: the cases are nested types carrying their payload under the field name, so a type pattern with a
-property pattern reaches both.
+C#: each case is a nested type, and its text is a property named after the field. Match the type and the
+property together:
 
 ```csharp
 static string Describe(ParserError err) => err switch
@@ -287,19 +286,20 @@ string report = Ini.FromFile("app.ini") switch
 ParserError expected = ParserError.NewInvalidLine("oops");
 ```
 
-The compiler cannot prove a C# switch over `ParserError` exhaustive, hence the discard arm. Errors are
-structurally equal — `ParserError.NewInvalidLine("oops")` equals any other `InvalidLine "oops"` — and print as
-`InvalidLine "oops"`.
+The C# compiler can't tell that the switch covers every `ParserError` case, so the `_` arm is needed. Errors
+are compared by value — `ParserError.NewInvalidLine("oops")` is equal to any other `InvalidLine "oops"` — and
+print as `InvalidLine "oops"`.
 
-`InvalidValue` and the typed lookups are compiled only into the `net10.0` build: on `net48` the type has two
-cases, so a match that names `InvalidValue` does not compile there.
+`InvalidValue` and the typed lookups exist only in the `net10.0` build. On `net48`, `ParserError` has only two
+cases, so code that mentions `InvalidValue` won't compile there.
 
 ## Typed lookup
 
-`tryFindValue` / `TryFindValue` and `tryFindNestedValue` / `TryFindNestedValue` parse the value as any
-`IParsable<T>` — the primitives, `Guid`, `DateTime`, `TimeSpan`, and your own types — under
-`CultureInfo.InvariantCulture`. They return an option of a result, keeping the two outcomes apart: `None`
-for a missing key, `Some (Error (InvalidValue value))` for a value that does not parse.
+`tryFindValue` / `TryFindValue` and `tryFindNestedValue` / `TryFindNestedValue` convert the value to any type
+that implements `IParsable<T>`: the primitive types, `Guid`, `DateTime`, `TimeSpan`, and your own types.
+Parsing uses `CultureInfo.InvariantCulture`. They return an option that contains a result, so the two kinds of
+failure stay separate: `None` means the key is missing, and `Some (Error (InvalidValue value))` means the value
+couldn't be parsed.
 
 F#:
 
@@ -318,35 +318,35 @@ let timeout =
     | None -> TimeSpan.FromSeconds 30.0
 ```
 
-C#: the option's `Value` is the result, so the patterns nest. `int` and `TimeSpan` are value types, so the
-error arms come before the `ResultValue` arm.
+C#: the option's `Value` is the result, so the patterns are nested. `int` and `TimeSpan` are value types, so
+the `Ok` arm checks `IsOk: true` instead of checking that `ResultValue` isn't `null`.
 
 ```csharp
 int port = ini.TryFindValue<int>("server:port") switch
 {
-    { Value.ErrorValue: { } err } => throw new FormatException(Describe(err)),
-    { Value.ResultValue: var p } => p,
+    { Value: { IsOk: true, ResultValue: var p } } => p,
+    { Value.ErrorValue: var err } => throw new FormatException(Describe(err)),
     null => 8080
 };
 
 TimeSpan timeout = ini.TryFindNestedValue<TimeSpan>("server.dev:timeout") switch
 {
+    { Value: { IsOk: true, ResultValue: var t } } => t,
     { Value.ErrorValue: ParserError.InvalidValue { Value: var text } } => throw new FormatException($"not a TimeSpan: {text}"),
-    { Value.ErrorValue: { } err } => throw new FormatException(Describe(err)),
-    { Value.ResultValue: var t } => t,
+    { Value.ErrorValue: var err } => throw new FormatException(Describe(err)),
     null => TimeSpan.FromSeconds(30)
 };
 ```
 
-`IParsable<T>` takes no `NumberStyles`, so each type parses with its own default: `float` / `double` accepts
-a thousands separator and so reads `"1,234"` as `1234.0`, where `int` does not and gives
+`IParsable<T>` doesn't accept `NumberStyles`, so each type uses its own default rules. For example, `float` /
+`double` allow a thousands separator and read `"1,234"` as `1234.0`, but `int` doesn't and returns
 `InvalidValue "1,234"`.
 
 ## Keys
 
-A key is `section:parameter`. Both halves must avoid whitespace and the characters `=`, `:`, `;`, `#`, `[`,
-`]`; the parameter half must be non-empty, the section half may be empty and then means the root section —
-so `x` and `:x` are the same key. Keys are compared `OrdinalIgnoreCase` in both halves, values are not.
+A key has the form `section:parameter`. Neither part may contain whitespace or any of `=`, `:`, `;`, `#`,
+`[`, `]`. The parameter part can't be empty. The section part can be empty, which means the root section, so
+`x` and `:x` are the same key. Keys are case-insensitive (`OrdinalIgnoreCase`); values are case-sensitive.
 
 | Key               |                                   |
 |-------------------|-----------------------------------|
@@ -357,9 +357,9 @@ so `x` and `:x` are the same key. Keys are compared `OrdinalIgnoreCase` in both 
 | `server:`         | `InvalidKey` — empty parameter    |
 | `a:b:c`           | `InvalidKey` — two colons         |
 
-Keys are never trimmed or repaired, so a key the parser would reject is simply absent on the way out:
-`TryFind` gives `None`, `ContainsKey` gives `false` and `Remove` is a no-op. On the way out a root
-parameter is written in full, so `keys` and enumeration give `:timeout`, not `timeout`.
+Keys are never trimmed or corrected. An invalid key is simply not found: `TryFind` returns `None`,
+`ContainsKey` returns `false`, and `Remove` does nothing. Root keys are always returned with the colon, so
+`keys` and enumeration give `:timeout`, not `timeout`.
 
 ## File format
 
@@ -372,19 +372,20 @@ parameter is written in full, so `keys` and enumeration give `:timeout`, not `ti
 | blank          | ignored                            |
 | anything else  | `InvalidLine`                      |
 
-A value is everything after the first `=`, with surrounding whitespace trimmed, so it may contain `=`, `:`,
-`;`, `#` and may be empty. A later parameter overwrites an earlier one with the same key, and a section may
-be reopened later on. Parsing is a single lazy pass that stops at the first unparsable line — a 10,000-line
-file with a bad line at position 3 reads three lines.
+The value is everything after the first `=`, with whitespace trimmed from both ends. It can contain `=`, `:`,
+`;` and `#`, and it can be empty. If the same key appears twice, the later value wins, and a section can be
+opened again further down the file. Lines are read one at a time, and reading stops at the first invalid
+line — if line 3 of a 10,000-line file is invalid, only three lines are read.
 
-Sections do not nest in the file: `[server.dev]` is a name of its own, stored verbatim. The dots only matter
-to the nested lookups, which walk up from `server.dev` to `server` to the root.
+Sections don't nest in the file: `[server.dev]` is just a section named `server.dev`. The dots matter only to
+the nested lookups, which look in `server.dev`, then `server`, then the root.
 
 ## Layering
 
-`appendLines` / `appendFile` read a layer over an existing document: the layer's parameters win on a shared
-key, the document's own parameters survive. Parsing always starts at the root section, so load order decides
-which value wins, never which key a line writes to.
+`appendLines` / `appendFile` read new parameters on top of an existing document. If both have the same key,
+the new value wins; all other existing parameters are kept. Each new file or list of lines starts in the root
+section, no matter which section the previous one ended in. So the load order decides which value wins, but
+never changes which key a line is stored under.
 
 F#:
 
@@ -405,9 +406,10 @@ config = config switch { { ResultValue: { } ini } => ini.AppendLines(["[server]"
 
 ## Sections
 
-`section` takes one section as a standalone document, `removeSection` is its complement, and `sections`
-lists the distinct names (`""` for the root). Dotted children are sections of their own, so removing
-`server` leaves `server.dev` in place — remove it by name, or fold over the names to drop a whole subtree.
+`section` returns one section as a new document, and `removeSection` returns everything except that section.
+`sections` lists the section names, with `""` for the root. A dotted section like `server.dev` is separate
+from `server`, so removing `server` keeps `server.dev`. To remove both, remove each one by name, or loop over
+the names as shown below.
 
 F#:
 
@@ -433,9 +435,9 @@ Ini withoutServer = ini.Sections
 
 ## Enumeration and rendering
 
-From F#, `Ini.toSeq` gives `(key, value)` tuples and `Ini.ofSeq` takes them back. From C#, the document
-itself is an `IEnumerable<KeyValuePair<string, string>>`, so `foreach`, LINQ and `Ini.Create(ini)` take it
-directly.
+In F#, `Ini.toSeq` returns `(key, value)` tuples and `Ini.ofSeq` builds a document from them. In C#, the
+document is itself an `IEnumerable<KeyValuePair<string, string>>`, so you can pass it straight to `foreach`,
+LINQ and `Ini.Create(ini)`.
 
 ```fsharp
 for key, value in Ini.toSeq ini do
@@ -449,14 +451,14 @@ foreach (var (key, value) in ini)
 }
 ```
 
-`toLines` / `ToLines` produce a canonical document: root parameters first with no header, then one
-`[section]` block per section separated by a blank line, all in key order — the root section first, then
-sections `OrdinalIgnoreCase` with a parent ahead of its children, then parameters within a section. An empty
-value renders as `x =`. `toString` / `ToString` joins the lines with `Environment.NewLine`, and
-`toFile` / `ToFile` writes them.
+`toLines` / `ToLines` write the document in a standard layout. Root parameters come first, without a header.
+Then each section follows as a `[section]` block, with a blank line between blocks. Sections are sorted
+case-insensitively, with a parent before its children (`server` before `server.dev`), and parameters are
+sorted within each section. An empty value is written as `x =`. `toString` / `ToString` joins the lines with
+`Environment.NewLine`, and `toFile` / `ToFile` writes them to a file.
 
-The output is normalised, not a faithful copy of the input: comments, blank lines, original ordering and
-duplicate entries are not preserved. Values are, so rendering and parsing back gives an equal document.
+The output doesn't reproduce the original file: comments, blank lines, the original order and duplicate keys
+are lost. All values are kept, so writing a document and reading it back gives an equal document.
 
 ## API
 
@@ -490,9 +492,9 @@ duplicate entries are not preserved. Values are, so rendering and parsing back g
 From C#, `string option` is `FSharpOption<string>` and `Result<Ini, ParserError>` is
 `FSharpResult<Ini, ParserError>`.
 
-`Ini` implements `IEnumerable<KeyValuePair<string, string>>`, `IEquatable<Ini>` and `IComparable<Ini>`:
-documents are compared by keys and then values, and equal documents have equal hash codes. Name case,
-declaration order, comments and blank lines are not taken into account.
+`Ini` implements `IEnumerable<KeyValuePair<string, string>>`, `IEquatable<Ini>` and `IComparable<Ini>`.
+Documents are compared by their keys first and then by their values, and equal documents have the same hash
+code. Letter case in names, the order of entries, comments and blank lines don't affect the comparison.
 
 ## Build
 

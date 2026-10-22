@@ -14,28 +14,10 @@ module Operators =
     let inline (<?>) arg func = Option.map func arg
 
 [<AutoOpen>]
-module Guards =
-    let inline throwIfNull paramName argument =
-        if box argument |> isNull then
-            ArgumentNullException paramName |> raise
+module KeyValue =
+    let inline key (kvp: KeyValuePair<_, _>) = kvp.Key
 
-    let inline requireNonNull paramName argument =
-        throwIfNull paramName argument
-        argument
-
-    let inline requireNonNullSeq paramName argument =
-        throwIfNull paramName argument
-        argument
-
-    let inline requireNonNullKeyValue paramName (argument: KeyValuePair<'K, 'V>) =
-        throwIfNull $"{paramName}.{nameof argument.Key}" argument.Key
-        throwIfNull $"{paramName}.{nameof argument.Value}" argument.Value
-        argument
-
-    let inline requireNonNullTuple paramName argument =
-        throwIfNull $"{paramName}.{nameof fst}" (fst argument)
-        throwIfNull $"{paramName}.{nameof snd}" (snd argument)
-        argument
+    let inline value (kvp: KeyValuePair<_, _>) = kvp.Value
 
 [<AutoOpen>]
 module Enumerator =
@@ -71,7 +53,25 @@ module File =
 
     let inline writeLines path (lines: string seq) = File.WriteAllLines(path, lines)
 
-type Comment = string
+[<AutoOpen>]
+module Guards =
+    let inline throwIfNull argumentName argument =
+        if box argument |> isNull then
+            nullArg argumentName
+
+    let inline requireNonNull argumentName argument =
+        throwIfNull argumentName argument
+        argument
+
+    let inline requireNonNullKeyValue argumentName argument =
+        throwIfNull $"{argumentName}.{nameof key}" (key argument)
+        throwIfNull $"{argumentName}.{nameof value}" (value argument)
+        argument
+
+    let inline requireNonNullTuple argumentName argument =
+        throwIfNull $"{argumentName}.{nameof fst}" (fst argument)
+        throwIfNull $"{argumentName}.{nameof snd}" (snd argument)
+        argument
 
 [<CustomComparison; CustomEquality>]
 type Section =
@@ -90,7 +90,7 @@ type Section =
             | :? Section as other -> m.CompareTo other
             | _ -> invalidArg (nameof obj) "Object is not a Section."
 
-    override m.Equals(obj) =
+    override m.Equals obj =
         match obj with
         | :? Section as other -> comparer.Equals(m.Name, other.Name)
         | _ -> false
@@ -101,7 +101,7 @@ type Parameter = { Key: string; Value: string }
 
 type Line =
     | Whitespace
-    | Comment of Comment: Comment
+    | Comment
     | Section of Section: Section
     | Parameter of Parameter: Parameter
 
@@ -121,7 +121,7 @@ type Key =
             | :? Key as other -> m.CompareTo other
             | _ -> invalidArg (nameof obj) "Object is not a Key."
 
-    override m.Equals(obj) =
+    override m.Equals obj =
         match obj with
         | :? Key as other -> m.Section.Equals other.Section && comparer.Equals(m.Parameter, other.Parameter)
         | _ -> false
@@ -175,7 +175,7 @@ module Parser =
 
     let private (|ParseComment|_|) text =
         match text with
-        | ParseRegex commentRegex [ text ] -> Comment text |> ValueSome
+        | ParseRegex commentRegex [ _ ] -> ValueSome Comment
         | _ -> ValueNone
 
     let private (|ParseSection|_|) text =
@@ -212,14 +212,14 @@ module Parser =
         | ParseParameterKey key -> Ok key
         | _ -> InvalidKey key |> Error
 
-    let tryParseKeyValue (pair: KeyValuePair<string, string>) =
-        match tryParseKey pair.Key with
-        | Ok key -> Ok(key, pair.Value)
+    let tryParseKeyValue kvp =
+        match key kvp |> tryParseKey with
+        | Ok key -> Ok(key, value kvp)
         | Error err -> Error err
 
-    let tryParseTuple tuple =
-        match fst tuple |> tryParseKey with
-        | Ok key -> Ok(key, snd tuple)
+    let tryParseTuple kvp =
+        match fst kvp |> tryParseKey with
+        | Ok key -> Ok(key, snd kvp)
         | Error err -> Error err
 
 #if NET
@@ -231,16 +231,16 @@ module Parser =
 
 [<RequireQualifiedAccess>]
 module KeyValuePair =
-    let inline toStringKey (kvp: KeyValuePair<Key, _>) = KeyValuePair(Key.path kvp.Key, kvp.Value)
+    let inline toStringKey kvp = KeyValuePair(key kvp |> Key.path, kvp.Value)
 
 [<RequireQualifiedAccess>]
 module Tuple =
-    let inline toStringKey (kvp: KeyValuePair<Key, _>) = Key.path kvp.Key, kvp.Value
+    let inline toStringKey kvp = key kvp |> Key.path, kvp.Value
 
 [<RequireQualifiedAccess>]
 module Map =
     let create pairs requireNonNullPair tryParsePair =
-        use enumerator = requireNonNullSeq (nameof pairs) pairs |> getEnumerator
+        use enumerator = requireNonNull (nameof pairs) pairs |> getEnumerator
 
         let rec loop map =
             if moveNext enumerator |> not then
@@ -253,7 +253,7 @@ module Map =
         loop Map.empty
 
     let appendLines lines map =
-        use enumerator = requireNonNullSeq (nameof lines) lines |> getEnumerator
+        use enumerator = requireNonNull (nameof lines) lines |> getEnumerator
 
         let rec loop map section =
             if moveNext enumerator |> not then
@@ -264,7 +264,7 @@ module Map =
                 | Ok line ->
                     match line with
                     | Whitespace -> loop map section
-                    | Comment _ -> loop map section
+                    | Comment -> loop map section
                     | Section { Name = name } -> loop map name
                     | Parameter { Key = key; Value = value } ->
                         loop (Map.add { Section = { Name = section }; Parameter = key } value map) section
@@ -272,7 +272,7 @@ module Map =
         loop map Empty
 
     let add key value map =
-        match tryParseKey (requireNonNull (nameof key) key) with
+        match requireNonNull (nameof key) key |> tryParseKey with
         | Ok key -> Map.add key (requireNonNull (nameof value) value) map |> Ok
         | Error err -> Error err
 
@@ -338,19 +338,19 @@ module Map =
 
     let containsKey key map = Map.containsKey (Key.create key) map
 
-    let keys (map: Map<Key, _>) = Map.keys map |> Seq.map Key.path
+    let keys map = Map.keys map |> Seq.map Key.path
 
     let values map = Map.values map :> string seq
 
-    let sections (map: Map<Key, _>) =
-        map |> Seq.map _.Key.Section |> Seq.distinct |> Seq.map _.Name
+    let sections map =
+        map |> Seq.map key |> Seq.map _.Section |> Seq.distinct |> Seq.map _.Name
 
-    let private sectionPredicate sign name map =
+    let private sectionWith sign name map =
         map |> Map.filter (fun key _ -> comparer.Equals(key.Section.Name, name) |> sign)
 
-    let section = sectionPredicate id
+    let section = sectionWith id
 
-    let removeSection = sectionPredicate not
+    let removeSection = sectionWith not
 
     let toFile path map = toLines map |> writeLines path
 
