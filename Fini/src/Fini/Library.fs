@@ -8,13 +8,13 @@ open System.IO
 open System.Text.RegularExpressions
 
 [<AutoOpen>]
-module private Operators =
+module Operators =
     let inline (<!>) arg func = Result.map func arg
 
     let inline (<?>) arg func = Option.map func arg
 
 [<AutoOpen>]
-module private Guards =
+module Guards =
     let inline throwIfNull paramName argument =
         if box argument |> isNull then
             ArgumentNullException paramName |> raise
@@ -38,7 +38,7 @@ module private Guards =
         argument
 
 [<AutoOpen>]
-module private Enumerator =
+module Enumerator =
     let inline getEnumerator (s: 'T seq) = s.GetEnumerator()
 
     let inline moveNext (e: IEnumerator<'T>) = e.MoveNext()
@@ -46,7 +46,7 @@ module private Enumerator =
     let inline current (e: IEnumerator<'T>) = e.Current
 
 [<AutoOpen>]
-module private String =
+module String =
     [<Literal>]
     let Empty = ""
 
@@ -66,15 +66,15 @@ module private String =
     let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
 
 [<AutoOpen>]
-module private File =
+module File =
     let inline readLines path = File.ReadLines path
 
     let inline writeLines path (lines: string seq) = File.WriteAllLines(path, lines)
 
-type private Comment = string
+type Comment = string
 
 [<CustomComparison; CustomEquality>]
-type private Section =
+type Section =
     { Name: string }
 
     member m.CompareTo other =
@@ -97,21 +97,18 @@ type private Section =
 
     override m.GetHashCode() = comparer.GetHashCode m.Name
 
-type private Parameter = { Key: string; Value: string }
+type Parameter = { Key: string; Value: string }
 
-type private Line =
+type Line =
     | Whitespace
     | Comment of Comment: Comment
     | Section of Section: Section
     | Parameter of Parameter: Parameter
 
 [<CustomComparison; CustomEquality>]
-type private Key =
-    private
-        { Section: Section
-          Parameter: string }
-
-    member m.Path = m.Section.Name + Separator + m.Parameter
+type Key =
+    { Section: Section
+      Parameter: string }
 
     member m.CompareTo other =
         match m.Section.CompareTo other.Section with
@@ -135,13 +132,15 @@ type private Key =
         ((first <<< 5) + first) ^^^ second
 
 [<RequireQualifiedAccess>]
-module private Key =
+module Key =
     let inline create key =
         match requireNonNull (nameof key) key |> indexOf Colon with
         | -1 -> { Section = { Name = Empty }; Parameter = key }
         | index ->
             { Section = { Name = key[.. index - 1] }
               Parameter = key[index + 1 ..] }
+
+    let inline path key = key.Section.Name + Separator + key.Parameter
 
 type ParserError =
     | InvalidKey of Key: string
@@ -151,7 +150,7 @@ type ParserError =
 #endif
 
 [<AutoOpen>]
-module private Parser =
+module Parser =
     let private whitespaceRegex = Regex(@"^\s*$", RegexOptions.Compiled)
 
     let private commentRegex = Regex(@"^\s*[;#]\s*(.*?)\s*$", RegexOptions.Compiled)
@@ -231,15 +230,15 @@ module private Parser =
 #endif
 
 [<RequireQualifiedAccess>]
-module private KeyValuePair =
-    let inline toStringKey (kvp: KeyValuePair<Key, string>) = KeyValuePair(kvp.Key.Path, kvp.Value)
+module KeyValuePair =
+    let inline toStringKey (kvp: KeyValuePair<Key, _>) = KeyValuePair(Key.path kvp.Key, kvp.Value)
 
 [<RequireQualifiedAccess>]
-module private Tuple =
-    let inline toStringKey (kvp: KeyValuePair<Key, string>) = kvp.Key.Path, kvp.Value
+module Tuple =
+    let inline toStringKey (kvp: KeyValuePair<Key, _>) = Key.path kvp.Key, kvp.Value
 
 [<RequireQualifiedAccess>]
-module private Map =
+module Map =
     let create pairs requireNonNullPair tryParsePair =
         use enumerator = requireNonNullSeq (nameof pairs) pairs |> getEnumerator
 
@@ -339,7 +338,7 @@ module private Map =
 
     let containsKey key map = Map.containsKey (Key.create key) map
 
-    let keys (map: Map<Key, _>) = Map.keys map |> Seq.map _.Path
+    let keys (map: Map<Key, _>) = Map.keys map |> Seq.map Key.path
 
     let values map = Map.values map :> string seq
 

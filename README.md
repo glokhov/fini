@@ -78,7 +78,7 @@ string? dPort = ini.TryFindNested("server.dev:port")?.Value;       // "5000"    
 string? iHost = ini.TryFindNested("server.dev:host")?.Value;       // "localhost" — inherited from [server]
 string? iTimeout = ini.TryFindNested("server.dev:timeout")?.Value; // "30"     — inherited from the root
 
-int? port = ini.TryFindValue<int>("server:port") is { Value: { ErrorValue: null, ResultValue: var p } } ? p : null; // 8080 — net10.0 only
+int? port = ini.TryFindValue<int>("server:port") is { Value: { IsOk: true, ResultValue: var p } } ? p : null; // 8080 — net10.0 only
 ```
 
 The F# surface is the `Ini` module, its functions taking the document last so they compose with `|>`. The C#
