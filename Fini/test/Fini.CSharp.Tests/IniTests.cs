@@ -712,6 +712,103 @@ public class IniTests
         Assert.Equal(ini, result.ResultValue);
     }
 
+    // ------------------------------------------------------------ Append (pairs)
+
+    [Fact]
+    public void AppendAddsPairsAndLeavesTheOriginalUnchanged()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        var result = ini.Append([KeyValuePair.Create("beta:y", "2"), KeyValuePair.Create("root", "0")]);
+
+        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
+        Assert.Equal([":root", "alpha:x", "beta:y"], result.ResultValue.Keys);
+        Assert.Equal(["alpha:x"], ini.Keys);
+    }
+
+    [Fact]
+    public void AppendOverwritesExistingKeys()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        var result = ini.Append([KeyValuePair.Create("ALPHA:X", "2")]);
+
+        Assert.True(result.IsOk);
+        Assert.Equal(1, result.ResultValue.Count);
+        Assert.True(result.ResultValue.TryFind("alpha:x") is { Value: "2" });
+        Assert.True(ini.TryFind("alpha:x") is { Value: "1" });
+    }
+
+    [Fact]
+    public void AppendLetsALaterPairOverwriteAnEarlierOne()
+    {
+        var result = Ini.Empty.Append([KeyValuePair.Create("x", "1"), KeyValuePair.Create("X", "2")]);
+
+        Assert.True(result.IsOk);
+        Assert.Equal(1, result.ResultValue.Count);
+        Assert.True(result.ResultValue.TryFind("x") is { Value: "2" });
+    }
+
+    [Fact]
+    public void AppendingTheIniItselfReturnsAnEqualIni()
+    {
+        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
+
+        var result = Ini.Empty.Append(ini);
+
+        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
+        Assert.Equal(ini, result.ResultValue);
+    }
+
+    [Fact]
+    public void AppendOfNoPairsReturnsAnEqualIni()
+    {
+        var ini = Create("[alpha]", "x = 1");
+
+        var result = ini.Append([]);
+
+        Assert.True(result.IsOk);
+        Assert.Equal(ini, result.ResultValue);
+    }
+
+    [Fact]
+    public void AppendToAnEmptyIniIsCreate()
+    {
+        KeyValuePair<string, string>[] pairs = [KeyValuePair.Create("root", "0"), KeyValuePair.Create("alpha:x", "1")];
+
+        Assert.Equal(Ini.Create(pairs).ResultValue, Ini.Empty.Append(pairs).ResultValue);
+    }
+
+    [Fact]
+    public void AppendRejectsAnInvalidKey()
+    {
+        var ini = Create("x = 1");
+
+        var result = ini.Append([KeyValuePair.Create("y", "2"), KeyValuePair.Create("a b", "3")]);
+
+        Assert.True(result.IsError);
+        Assert.Equal(ParserError.NewInvalidKey("a b"), result.ErrorValue);
+        Assert.Equal([":x"], ini.Keys);
+    }
+
+    [Fact]
+    public void AppendRejectsNullPairs()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append(null!));
+    }
+
+    [Fact]
+    public void AppendRejectsAPairWithANullKey()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append([KeyValuePair.Create((string)null!, "1")]));
+    }
+
+    [Fact]
+    public void AppendRejectsAPairWithANullValue()
+    {
+        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append([KeyValuePair.Create("x", (string)null!)]));
+    }
+
     // ------------------------------------------------------------ files
 
     private static void WithTempFile(string[] lines, Action<string> body)

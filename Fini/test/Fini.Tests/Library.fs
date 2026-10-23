@@ -1138,6 +1138,154 @@ let ``toSeq and ofSeq round trip`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
     Assert.Equal<Ini>(ini, ini |> Ini.toSeq |> ofSeq)
 
+// ---------------------------------------------------------------- append (pairs)
+
+let private appended pairs ini =
+    match Ini.append pairs ini with
+    | Ok ini -> ini
+    | Error err -> failwith $"expected Ok, got Error: %A{err}"
+
+let private appendError pairs ini =
+    match Ini.append pairs ini with
+    | Ok _ -> failwith "expected Error, got Ok"
+    | Error err -> err
+
+[<Fact>]
+let ``append adds pairs to an existing ini`` () =
+    let ini = create [ "[alpha]"; "x = 1" ] |> appended [ "beta:y", "2"; "root", "0" ]
+    Assert.Equal<string list>([ ":root"; "alpha:x"; "beta:y" ], keys ini)
+    Assert.Equal<string list>([ "0"; "1"; "2" ], values ini)
+
+[<Fact>]
+let ``append overwrites existing keys case insensitively`` () =
+    let ini = create [ "[alpha]"; "x = 1" ] |> appended [ "ALPHA:X", "2" ]
+    Assert.Equal(1, Ini.count ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+
+[<Fact>]
+let ``append lets a later pair overwrite an earlier one`` () =
+    let ini = Ini.empty |> appended [ "x", "1"; "X", "2" ]
+    Assert.Equal(1, Ini.count ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind "x" ini)
+
+[<Fact>]
+let ``append leaves the original ini unchanged`` () =
+    let ini = create [ "[alpha]"; "x = 1" ]
+    appended [ "alpha:x", "2"; "beta:y", "3" ] ini |> ignore
+    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
+
+[<Fact>]
+let ``append of no pairs returns an equal ini`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
+    Assert.Equal<Ini>(ini, appended [] ini)
+
+[<Fact>]
+let ``append to an empty ini is ofSeq`` () =
+    let pairs = [ "root", "0"; "alpha:x", "1"; "alpha.beta:y", "2" ]
+    Assert.Equal<Ini>(ofSeq pairs, appended pairs Ini.empty)
+
+[<Fact>]
+let ``append equals adding the same pairs one by one`` () =
+    let ini = create [ "[alpha]"; "x = 1" ]
+    let expected = ini |> added "alpha:x" "2" |> added "beta:y" "3"
+    Assert.Equal<Ini>(expected, appended [ "alpha:x", "2"; "beta:y", "3" ] ini)
+
+[<Fact>]
+let ``append stores values verbatim`` () =
+    let ini = Ini.empty |> appended [ "x", " a ; b # c = d "; "y", "" ]
+    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "", Ini.tryFind "y" ini)
+
+[<Fact>]
+let ``append and toSeq round trip`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
+    Assert.Equal<Ini>(ini, Ini.empty |> appended (Ini.toSeq ini))
+
+[<Theory>]
+[<InlineData("")>]
+[<InlineData("a b")>]
+[<InlineData("a=b")>]
+[<InlineData("[a]")>]
+[<InlineData("alpha:x:y")>]
+[<InlineData("alpha:")>]
+[<InlineData(":")>]
+let ``append rejects an invalid key`` key =
+    let ini = create [ "[alpha]"; "x = 1" ]
+    Assert.Equal<ParserError>(InvalidKey key, appendError [ key, "1" ] ini)
+
+[<Fact>]
+let ``append reports the first invalid key`` () =
+    let ini = create [ "x = 1" ]
+    Assert.Equal<ParserError>(InvalidKey "a b", appendError [ "y", "2"; "a b", "3"; "c d", "4" ] ini)
+
+[<Fact>]
+let ``append stops at the first invalid key`` () =
+    let consumed = ref 0
+
+    let input =
+        seq {
+            for i in 1..10000 do
+                consumed.Value <- consumed.Value + 1
+                if i = 3 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
+        }
+
+    Assert.Equal<ParserError>(InvalidKey "a b", appendError input Ini.empty)
+    Assert.Equal(3, consumed.Value)
+
+[<Fact>]
+let ``append disposes the enumerator when it stops early`` () =
+    let disposed = ref false
+
+    let input =
+        seq {
+            try
+                yield ("ok", "1")
+                yield ("a b", "2")
+                yield ("never", "reached")
+            finally
+                disposed.Value <- true
+        }
+
+    Assert.Equal<ParserError>(InvalidKey "a b", appendError input Ini.empty)
+    Assert.True(disposed.Value, "the enumerator was not disposed")
+
+[<Fact>]
+let ``append discards the pairs when a later key is invalid`` () =
+    let ini = create [ "x = 1" ]
+    Assert.Equal<ParserError>(InvalidKey "a b", appendError [ "y", "2"; "a b", "3" ] ini)
+    Assert.Equal<string list>([ ":x" ], keys ini)
+
+[<Fact>]
+let ``append rejects null pairs`` () =
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.append null Ini.empty |> ignore) |> ignore
+
+[<Fact>]
+let ``append rejects a pair with a null key`` () =
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.append [ (null, "1") ] Ini.empty |> ignore)
+    |> ignore
+
+[<Fact>]
+let ``append rejects a pair with a null value`` () =
+    Assert.Throws<ArgumentNullException>(fun () -> Ini.append [ ("x", null) ] Ini.empty |> ignore)
+    |> ignore
+
+[<Fact>]
+let ``the Append member agrees with the append function`` () =
+    let ini = create [ "[alpha]"; "x = 1" ]
+
+    match ini.Append [ KeyValuePair("alpha:x", "2"); KeyValuePair("beta:y", "3") ] with
+    | Error err -> failwith $"%A{err}"
+    | Ok result -> Assert.Equal<Ini>(appended [ "alpha:x", "2"; "beta:y", "3" ] ini, result)
+
+[<Fact>]
+let ``the Append member accepts an ini`` () =
+    let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
+
+    match Ini.empty.Append ini with
+    | Error err -> failwith $"%A{err}"
+    | Ok result -> Assert.Equal<Ini>(ini, result)
+
 // ---------------------------------------------------------------- files
 
 let private tempPath prefix =

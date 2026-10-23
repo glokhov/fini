@@ -363,11 +363,13 @@ module Ini =
 
     let fromLines lines = Map.appendLines lines Map.empty <!> create
 
-    let fromFile path = fromLines (readLines path)
+    let fromFile path = Map.appendLines (readLines path) Map.empty <!> create
+
+    let append pairs ini = Map.append pairs ini.Map <!> create
 
     let appendLines lines ini = Map.appendLines lines ini.Map <!> create
 
-    let appendFile path ini = appendLines (readLines path) ini
+    let appendFile path ini = Map.appendLines (readLines path) ini.Map <!> create
 
     let isEmpty ini = Map.isEmpty ini.Map
 
@@ -409,19 +411,24 @@ module Ini =
 
     let toString ini = Map.toString ini.Map
 
+[<RequireQualifiedAccess>]
+module KVP =
+    let inline deconstruct pair = (key pair, value pair)
+
 type Ini with
     static member Empty = Ini.empty
 
-    static member Create pairs =
-        pairs |> Seq.map (fun kvp -> (key kvp, value kvp)) |> Ini.ofSeq
-
-    static member FromFile path = Ini.fromFile path
+    static member Create pairs = pairs |> Seq.map KVP.deconstruct |> Ini.ofSeq
 
     static member FromLines lines = Ini.fromLines lines
 
-    member m.AppendFile path = Ini.appendFile path m
+    static member FromFile path = Ini.fromFile path
+
+    member m.Append pairs = Ini.append (pairs |> Seq.map KVP.deconstruct) m
 
     member m.AppendLines lines = Ini.appendLines lines m
+
+    member m.AppendFile path = Ini.appendFile path m
 
     member m.IsEmpty = Ini.isEmpty m
 

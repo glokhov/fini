@@ -18,9 +18,9 @@ open System.Collections.Generic
 /// </remarks>
 type ParserError =
     /// <summary>
-    /// A key that doesn't have the form <c>section:parameter</c>. Returned by <c>Add</c> and
-    /// <c>Create</c> / <c>Ini.add</c> and <c>Ini.ofSeq</c>. Rejecting these keys guarantees that anything
-    /// <c>ToLines</c> writes can be read back.
+    /// A key that doesn't have the form <c>section:parameter</c>. Returned by <c>Add</c>, <c>Create</c> and
+    /// <c>Append</c> / <c>Ini.add</c>, <c>Ini.ofSeq</c> and <c>Ini.append</c>. Rejecting these keys
+    /// guarantees that anything <c>ToLines</c> writes can be read back.
     /// </summary>
     /// <remarks>
     /// Neither part may contain whitespace or any of <c>= : ; # [ ]</c>. The parameter part can't be
@@ -69,8 +69,8 @@ type ParserError =
 /// case-insensitively with a parent before its children, and parameters are sorted within each section.
 /// To get the pairs, enumerate the document: it is an
 /// <c>IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt;</c>, with keys of the form
-/// <c>section:parameter</c> and root keys of the form <c>:name</c>. In F#, you can also use
-/// <c>Ini.toSeq</c>.
+/// <c>section:parameter</c> and root keys of the form <c>:name</c>. The same pairs are also available as
+/// <c>KeyValuePairs</c>. In F#, you can also use <c>Ini.toSeq</c>.
 /// </para>
 /// <para>
 /// Keys are case-insensitive (<c>OrdinalIgnoreCase</c>). A key without a colon belongs to the root
@@ -110,22 +110,6 @@ type Ini =
     /// </remarks>
     static member Create: pairs: seq<KeyValuePair<string, string>> -> Result<Ini, ParserError>
 
-    /// <summary>Reads a document from a file.</summary>
-    /// <param name="path">The path of the file to read.</param>
-    /// <returns>
-    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
-    /// read.
-    /// </returns>
-    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
-    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
-    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
-    /// <exception cref="T:System.IO.IOException">The file can't be read.</exception>
-    /// <remarks>
-    /// Lines are read one at a time, and reading stops at the first invalid line. If line 3 of a
-    /// 10,000-line file is invalid, only three lines are read. The file is always closed afterwards.
-    /// </remarks>
-    static member FromFile: path: string -> Result<Ini, ParserError>
-
     /// <summary>Reads a document from lines.</summary>
     /// <param name="lines">
     /// The lines to read. <c>[name]</c> opens a section, <c>name = value</c> is a parameter in the current
@@ -146,22 +130,41 @@ type Ini =
     /// </remarks>
     static member FromLines: lines: seq<string> -> Result<Ini, ParserError>
 
-    /// <summary>Reads a file on top of this document.</summary>
+    /// <summary>Reads a document from a file.</summary>
     /// <param name="path">The path of the file to read.</param>
     /// <returns>
-    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
-    /// read. If the file and this document have the same key, the file's value wins; all other parameters
-    /// of this document are kept.
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
+    /// read.
     /// </returns>
     /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
     /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
     /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
     /// <exception cref="T:System.IO.IOException">The file can't be read.</exception>
     /// <remarks>
-    /// The file is read with the same rules as <c>FromLines</c>, so it starts in the root section. The
-    /// load order decides which value wins, but never changes which key a line is stored under.
+    /// Lines are read one at a time, and reading stops at the first invalid line. If line 3 of a
+    /// 10,000-line file is invalid, only three lines are read. The file is always closed afterwards.
     /// </remarks>
-    member AppendFile: path: string -> Result<Ini, ParserError>
+    static member FromFile: path: string -> Result<Ini, ParserError>
+
+    /// <summary>Adds key/value pairs on top of this document.</summary>
+    /// <param name="pairs">
+    /// The pairs to add, each with a key of the form <c>section:parameter</c>. If the same key appears
+    /// twice, the later value wins. The pairs are read one at a time, and reading stops at the first
+    /// invalid key.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidKey</c> for the first invalid key. If the
+    /// pairs and this document have the same key, the new value wins; all other parameters of this
+    /// document are kept.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException">
+    /// <paramref name="pairs"/>, or the key or value of one of the pairs, is <c>null</c>.
+    /// </exception>
+    /// <remarks>
+    /// Accepts the same pairs that enumerating a document gives, so <c>Ini.Empty.Append(ini)</c> returns
+    /// <c>Ok</c> of a document equal to <c>ini</c>. This document is not changed.
+    /// </remarks>
+    member Append: pairs: seq<KeyValuePair<string, string>> -> Result<Ini, ParserError>
 
     /// <summary>Reads lines on top of this document.</summary>
     /// <param name="lines">The lines to read, with the same rules as <c>FromLines</c>.</param>
@@ -179,6 +182,23 @@ type Ini =
     /// themselves.
     /// </remarks>
     member AppendLines: lines: seq<string> -> Result<Ini, ParserError>
+
+    /// <summary>Reads a file on top of this document.</summary>
+    /// <param name="path">The path of the file to read.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
+    /// read. If the file and this document have the same key, the file's value wins; all other parameters
+    /// of this document are kept.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException"><paramref name="path"/> is <c>null</c>.</exception>
+    /// <exception cref="T:System.IO.FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="T:System.IO.DirectoryNotFoundException">The path is invalid.</exception>
+    /// <exception cref="T:System.IO.IOException">The file can't be read.</exception>
+    /// <remarks>
+    /// The file is read with the same rules as <c>FromLines</c>, so it starts in the root section. The
+    /// load order decides which value wins, but never changes which key a line is stored under.
+    /// </remarks>
+    member AppendFile: path: string -> Result<Ini, ParserError>
 
     /// <summary>Whether the document has no parameters.</summary>
     member IsEmpty: bool
@@ -292,6 +312,13 @@ type Ini =
     /// <summary>The values, in the same order as <c>Keys</c>.</summary>
     member Values: seq<string>
 
+    /// <summary>The parameters as key/value pairs, in key order.</summary>
+    /// <remarks>
+    /// The same pairs that enumerating the document gives, with keys of the form
+    /// <c>section:parameter</c> and root keys of the form <c>:name</c>.
+    /// </remarks>
+    member KeyValuePairs: seq<KeyValuePair<string, string>>
+
     /// <summary>The section names, each listed once, in key order. The root section is <c>""</c>.</summary>
     /// <remarks>
     /// A dotted name like <c>server.dev</c> is a separate section, so <c>[server]</c> and
@@ -385,6 +412,21 @@ module Ini =
     /// </remarks>
     val ofSeq: pairs: seq<string * string> -> Result<Ini, ParserError>
 
+    /// <summary>Reads a document from lines.</summary>
+    /// <param name="lines">
+    /// The lines to read. <c>[name]</c> opens a section, <c>name = value</c> is a parameter in the current
+    /// section, <c>; text</c> and <c># text</c> are comments, and blank lines are ignored. Anything else
+    /// is an error. Parameters before the first section header belong to the root section.
+    /// </param>
+    /// <returns>
+    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
+    /// read.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException">
+    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
+    /// </exception>
+    val fromLines: lines: seq<string> -> Result<Ini, ParserError>
+
     /// <summary>Reads a document from a file.</summary>
     /// <param name="path">The path of the file to read.</param>
     /// <returns>
@@ -401,20 +443,43 @@ module Ini =
     /// </remarks>
     val fromFile: path: string -> Result<Ini, ParserError>
 
-    /// <summary>Reads a document from lines.</summary>
-    /// <param name="lines">
-    /// The lines to read. <c>[name]</c> opens a section, <c>name = value</c> is a parameter in the current
-    /// section, <c>; text</c> and <c># text</c> are comments, and blank lines are ignored. Anything else
-    /// is an error. Parameters before the first section header belong to the root section.
+    /// <summary>Adds key/value tuples on top of a document.</summary>
+    /// <param name="pairs">
+    /// The pairs to add, each with a key of the form <c>section:parameter</c>. If the same key appears
+    /// twice, the later value wins. The pairs are read one at a time, and reading stops at the first
+    /// invalid key.
     /// </param>
+    /// <param name="ini">The existing document. It is not changed.</param>
     /// <returns>
-    /// <c>Ok</c> of the document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
-    /// read.
+    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidKey</c> for the first invalid key. If the
+    /// pairs and the document have the same key, the new value wins; all other parameters of the document
+    /// are kept.
+    /// </returns>
+    /// <exception cref="T:System.ArgumentNullException">
+    /// <paramref name="pairs"/>, or the key or value of one of the tuples, is <c>null</c>.
+    /// </exception>
+    /// <remarks>
+    /// Accepts the same tuples that <c>toSeq</c> returns, so <c>Ini.empty |&gt; Ini.append (Ini.toSeq ini)</c>
+    /// returns <c>Ok</c> of a document equal to <c>ini</c>.
+    /// </remarks>
+    val append: pairs: seq<string * string> -> ini: Ini -> Result<Ini, ParserError>
+
+    /// <summary>Reads lines on top of a document.</summary>
+    /// <param name="lines">The lines to read, with the same rules as <c>fromLines</c>.</param>
+    /// <param name="ini">The existing document. It is not changed.</param>
+    /// <returns>
+    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
+    /// read. If the lines and the document have the same key, the new value wins; all other parameters of
+    /// the document are kept.
     /// </returns>
     /// <exception cref="T:System.ArgumentNullException">
     /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
     /// </exception>
-    val fromLines: lines: seq<string> -> Result<Ini, ParserError>
+    /// <remarks>
+    /// The lines always start in the root section, so <c>Ini.empty |&gt; Ini.appendLines lines</c> is the
+    /// same as <c>Ini.fromLines lines</c>.
+    /// </remarks>
+    val appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, ParserError>
 
     /// <summary>Reads a file on top of a document.</summary>
     /// <param name="path">The path of the file to read.</param>
@@ -433,23 +498,6 @@ module Ini =
     /// load order decides which value wins, but never changes which key a line is stored under.
     /// </remarks>
     val appendFile: path: string -> ini: Ini -> Result<Ini, ParserError>
-
-    /// <summary>Reads lines on top of a document.</summary>
-    /// <param name="lines">The lines to read, with the same rules as <c>fromLines</c>.</param>
-    /// <param name="ini">The existing document. It is not changed.</param>
-    /// <returns>
-    /// <c>Ok</c> of a new document, or <c>Error</c> of <c>InvalidLine</c> for the first line that can't be
-    /// read. If the lines and the document have the same key, the new value wins; all other parameters of
-    /// the document are kept.
-    /// </returns>
-    /// <exception cref="T:System.ArgumentNullException">
-    /// <paramref name="lines"/>, or one of the lines, is <c>null</c>.
-    /// </exception>
-    /// <remarks>
-    /// The lines always start in the root section, so <c>Ini.empty |&gt; Ini.appendLines lines</c> is the
-    /// same as <c>Ini.fromLines lines</c>.
-    /// </remarks>
-    val appendLines: lines: seq<string> -> ini: Ini -> Result<Ini, ParserError>
 
     /// <summary>Whether a document has no parameters.</summary>
     /// <param name="ini">The document.</param>

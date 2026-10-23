@@ -162,7 +162,7 @@ you don't need `using Microsoft.FSharp.Core`; write out `FSharpOption<string>` o
 ## Building and parsing return a result
 
 Functions that can reject a key or a line return `Ok ini` or `Error err`. These are `fromLines`, `fromFile`,
-`appendLines`, `appendFile`, `add` and `ofSeq`.
+`appendLines`, `appendFile`, `append`, `add` and `ofSeq`.
 
 F#:
 
@@ -242,7 +242,7 @@ type ParserError =
     | InvalidValue of Value: string // net10.0 only
 ```
 
-Each case holds the exact text that caused the problem. `add` and `ofSeq` return `InvalidKey`, the four
+Each case holds the exact text that caused the problem. `add`, `append` and `ofSeq` return `InvalidKey`, the four
 parsing functions return `InvalidLine`, and the typed lookups return `InvalidValue`. A `null` argument or a
 file system problem throws an exception.
 
@@ -404,6 +404,37 @@ config = config switch { { ResultValue: { } ini } => ini.AppendFile("app.ini"), 
 config = config switch { { ResultValue: { } ini } => ini.AppendLines(["[server]", $"port = {portFromArgs}"]), var error => error };
 ```
 
+`append` / `Append` layers key/value pairs instead of lines. The keys have the form `section:parameter`, the same
+as for `add`, and every pair is checked. If a key is invalid, you get `Error (InvalidKey key)` and no pairs are
+added. Pairs are read one at a time, so reading stops at the first invalid key. If a key appears twice, the later
+value wins. `append` accepts the same pairs that `toSeq` returns and that enumerating a document gives, so
+you can merge one document into another.
+
+F#:
+
+```fsharp
+let config' =
+    Ini.fromFile "defaults.ini"
+    |> Result.bind (Ini.append [ "server:port", portFromArgs; "timeout", "10" ])
+
+// merge one document into another: values of `overrides` win
+let merged = defaults |> Ini.append (Ini.toSeq overrides)
+```
+
+C#:
+
+```csharp
+var config = Ini.FromFile("defaults.ini");
+config = config switch
+{
+    { ResultValue: { } ini } => ini.Append([KeyValuePair.Create("server:port", portFromArgs), KeyValuePair.Create("timeout", "10")]),
+    var error => error
+};
+
+// merge one document into another: values of `overrides` win
+var merged = defaults.Append(overrides);
+```
+
 ## Sections
 
 `section` returns one section as a new document, and `removeSection` returns everything except that section.
@@ -437,7 +468,8 @@ Ini withoutServer = ini.Sections
 
 In F#, `Ini.toSeq` returns `(key, value)` tuples and `Ini.ofSeq` builds a document from them. In C#, the
 document is itself an `IEnumerable<KeyValuePair<string, string>>`, so you can pass it straight to `foreach`,
-LINQ and `Ini.Create(ini)`.
+LINQ and `Ini.Create(ini)`. The same pairs are also available as `ini.KeyValuePairs`, which is handy when you
+need the sequence itself rather than the document.
 
 ```fsharp
 for key, value in Ini.toSeq ini do
@@ -468,6 +500,7 @@ are lost. All values are kept, so writing a document and reading it back gives a
 | `Ini.Create pairs`              | `Ini.ofSeq pairs`                    | `Result<Ini, ParserError>`                        |
 | `Ini.FromLines lines`           | `Ini.fromLines lines`                | `Result<Ini, ParserError>`                        |
 | `Ini.FromFile path`             | `Ini.fromFile path`                  | `Result<Ini, ParserError>`                        |
+| `ini.Append pairs`              | `Ini.append pairs ini`               | `Result<Ini, ParserError>`                        |
 | `ini.AppendLines lines`         | `Ini.appendLines lines ini`          | `Result<Ini, ParserError>`                        |
 | `ini.AppendFile path`           | `Ini.appendFile path ini`            | `Result<Ini, ParserError>`                        |
 | `ini.Add(key, value)`           | `Ini.add key value ini`              | `Result<Ini, ParserError>`                        |
@@ -482,6 +515,7 @@ are lost. All values are kept, so writing a document and reading it back gives a
 | `ini.Keys`                      | `Ini.keys ini`                       | `seq<string>`                                     |
 | `ini.Values`                    | `Ini.values ini`                     | `seq<string>`                                     |
 | `foreach` / LINQ over `ini`     | `Ini.toSeq ini`                      | pairs, in key order                               |
+| `ini.KeyValuePairs`             | `Ini.toSeq ini`                      | `seq<KeyValuePair<string, string>>`               |
 | `ini.Sections`                  | `Ini.sections ini`                   | `seq<string>`                                     |
 | `ini.Section name`              | `Ini.section name ini`               | `Ini`                                             |
 | `ini.RemoveSection name`        | `Ini.removeSection name ini`         | `Ini`                                             |
