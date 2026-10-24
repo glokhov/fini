@@ -35,9 +35,9 @@ let ``empty has no entries`` () =
 
 [<Fact>]
 let ``empty finds nothing`` () =
-    Assert.Equal<string option>(None, Ini.tryFind "a:x" Ini.empty)
-    Assert.Equal<string option>(None, Ini.tryFindNested "a:x" Ini.empty)
-    Assert.False(Ini.containsKey "a:x" Ini.empty)
+    Assert.Equal<string option>(None, Ini.tryFind (key "a:x") Ini.empty)
+    Assert.Equal<string option>(None, Ini.tryFindNested (key "a:x") Ini.empty)
+    Assert.False(Ini.containsKey (key "a:x") Ini.empty)
 
 [<Fact>]
 let ``no lines creates an empty ini`` () =
@@ -76,36 +76,36 @@ let ``comment lines are ignored`` line =
 let ``comments and blank lines are skipped between parameters`` () =
     let ini = create [ "; leading comment"; ""; "root = 0"; "   "; "[alpha]"; "# hash comment"; "x = 1" ]
 
-    Assert.Equal<string list>([ ":root"; "alpha:x" ], keys ini)
+    Assert.Equal<Key list>([ key ":root"; key "alpha:x" ], keys ini)
 
 // ---------------------------------------------------------------- parsing: parameters
 
 [<Fact>]
 let ``a parameter outside any section is keyed at the root`` () =
     let ini = create [ "x = 1" ]
-    Assert.Equal<string list>([ ":x" ], keys ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind ":x" ini)
+    Assert.Equal<Key list>([ key ":x" ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key ":x") ini)
 
 [<Fact>]
 let ``a parameter inside a section is keyed by section and name`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha:x" ], keys ini)
 
 [<Fact>]
 let ``a dotted section name is preserved`` () =
     let ini = create [ "[alpha.beta]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha.beta:x" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha.beta:x" ], keys ini)
 
 [<Fact>]
 let ``surrounding whitespace is trimmed from sections names and values`` () =
     let ini = create [ "[  alpha  ]"; "   x   =   one two   " ]
-    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha:x" ], keys ini)
     Assert.Equal<string list>([ "one two" ], values ini)
 
 [<Fact>]
 let ``a parameter may have an empty value`` () =
     let ini = create [ "x =" ]
-    Assert.Equal<string option>(Some "", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "", Ini.tryFind (key "x") ini)
 
 // ---------------------------------------------------------------- whitespace around names
 
@@ -127,8 +127,8 @@ let ``a tab after a parameter name is not part of the key`` () = Assert.Equal<In
 [<InlineData("[name\f]")>]
 let ``whitespace around a section name is trimmed`` section =
     let ini = create [ section; "x = 1" ]
-    Assert.Equal<string list>([ "name:x" ], keys ini)
-    Assert.True(ini |> Ini.containsKey "name:x")
+    Assert.Equal<Key list>([ key "name:x" ], keys ini)
+    Assert.True(ini |> Ini.containsKey (key "name:x"))
 
 [<Theory>]
 [<InlineData("name = 1")>]
@@ -140,18 +140,18 @@ let ``whitespace around a section name is trimmed`` section =
 [<InlineData("name\f= 1")>]
 let ``whitespace around a parameter name is trimmed`` line =
     let ini = create [ line ]
-    Assert.Equal<string list>([ ":name" ], keys ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind "name" ini)
+    Assert.Equal<Key list>([ key ":name" ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "name") ini)
 
 [<Fact>]
 let ``whitespace around a dotted section name is trimmed`` () =
     let ini = create [ "[\talpha.beta\t]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha.beta:x" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha.beta:x" ], keys ini)
 
 [<Fact>]
 let ``whitespace around a section header line is ignored`` () =
     let ini = create [ "\t[alpha]\t"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha:x" ], keys ini)
 
 [<Theory>]
 [<InlineData("[name\tnested]")>]
@@ -163,12 +163,12 @@ let ``whitespace inside a name is rejected`` line = Assert.Equal<ParserError>(In
 [<Fact>]
 let ``tabs are trimmed from a value but kept inside it`` () =
     let ini = create [ "x =\ta\tb\t" ]
-    Assert.Equal<string option>(Some "a\tb", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "a\tb", Ini.tryFind (key "x") ini)
 
 [<Fact>]
 let ``only the first equals sign separates name from value`` () =
     let ini = create [ "x = a=b=c" ]
-    Assert.Equal<string option>(Some "a=b=c", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "a=b=c", Ini.tryFind (key "x") ini)
 
 [<Theory>]
 [<InlineData("x = 1 ; note", "1 ; note")>]
@@ -177,18 +177,18 @@ let ``only the first equals sign separates name from value`` () =
 [<InlineData("x = https://example.com/doc#section", "https://example.com/doc#section")>]
 let ``a comment marker inside a value is part of the value`` (line, expected) =
     let ini = create [ line ]
-    Assert.Equal<string option>(Some expected, Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some expected, Ini.tryFind (key "x") ini)
 
 [<Fact>]
 let ``a later parameter overwrites an earlier one with the same key`` () =
     let ini = create [ "[alpha]"; "x = 1"; "x = 2" ]
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``a section may be reopened later in the file`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2"; "[alpha]"; "z = 3" ]
-    Assert.Equal<string list>([ "alpha:x"; "alpha:z"; "beta:y" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha:x"; key "alpha:z"; key "beta:y" ], keys ini)
 
 // ---------------------------------------------------------------- parsing: errors
 
@@ -295,37 +295,28 @@ let ``a section name and a parameter name cannot be confused`` () =
     Assert.Equal<ParserError>(InvalidLine "beta:x = 1", error [ "[alpha]"; "beta:x = 1" ])
 
 [<Fact>]
-let ``every key holds exactly one colon and splits unambiguously`` () =
-    let ini = create [ "timeout = 30"; "[server]"; "host = localhost"; "[server.dev]"; "port = 5000" ]
-
-    for key in Ini.keys ini do
-        Assert.Equal(key.IndexOf ':', key.LastIndexOf ':')
-
-    Assert.Equal<string list>([ ":timeout"; "server:host"; "server.dev:port" ], keys ini)
-
-[<Fact>]
 let ``a value may still contain colons`` () =
     let ini = create [ "url = https://example.com:8080/a:b" ]
-    Assert.Equal<string option>(Some "https://example.com:8080/a:b", Ini.tryFind "url" ini)
+    Assert.Equal<string option>(Some "https://example.com:8080/a:b", Ini.tryFind (key "url") ini)
 
 // ---------------------------------------------------------------- lookup
 
 [<Fact>]
 let ``tryFind returns None for a missing key`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<string option>(None, Ini.tryFind "alpha:nope" ini)
-    Assert.Equal<string option>(None, Ini.tryFind "nope:x" ini)
+    Assert.Equal<string option>(None, Ini.tryFind (key "alpha:nope") ini)
+    Assert.Equal<string option>(None, Ini.tryFind (key "nope:x") ini)
 
 [<Fact>]
 let ``a key without a separator refers to the root section`` () =
     let ini = create [ "x = 1" ]
-    Assert.Equal<string option>(Some "1", Ini.tryFind "x" ini)
-    Assert.True(Ini.containsKey "x" ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "x") ini)
+    Assert.True(Ini.containsKey (key "x") ini)
 
 [<Fact>]
 let ``a root key does not match a sectioned parameter`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<string option>(None, Ini.tryFind "x" ini)
+    Assert.Equal<string option>(None, Ini.tryFind (key "x") ini)
 
 [<Theory>]
 [<InlineData("alpha:x")>]
@@ -339,21 +330,21 @@ let ``keys are compared case insensitively`` key =
 [<Fact>]
 let ``values keep their original case`` () =
     let ini = create [ "x = MixedCase" ]
-    Assert.Equal<string option>(Some "MixedCase", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "MixedCase", Ini.tryFind (key "x") ini)
 
 [<Fact>]
 let ``lookups take the ini last so they compose with pipe`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
 
-    Assert.True(ini |> Ini.containsKey "alpha:x")
-    Assert.False(ini |> Ini.containsKey "alpha:nope")
-    Assert.Equal<string option>(Some "1", ini |> Ini.tryFind "alpha:x")
-    Assert.Equal<string option>(Some "0", ini |> Ini.tryFindNested "alpha:root")
+    Assert.True(ini |> Ini.containsKey (key "alpha:x"))
+    Assert.False(ini |> Ini.containsKey (key "alpha:nope"))
+    Assert.Equal<string option>(Some "1", ini |> Ini.tryFind (key "alpha:x"))
+    Assert.Equal<string option>(Some "0", ini |> Ini.tryFindNested (key "alpha:root"))
 
 [<Fact>]
 let ``keys and values are aligned and ordered`` () =
     let ini = create [ "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys ini)
+    Assert.Equal<Key list>([ key "alpha:x"; key "beta:y" ], keys ini)
     Assert.Equal<string list>([ "1"; "2" ], values ini)
 
 // ---------------------------------------------------------------- nested lookup
@@ -361,37 +352,37 @@ let ``keys and values are aligned and ordered`` () =
 [<Fact>]
 let ``tryFindNested finds an exact match`` () =
     let ini = create [ "[alpha.beta]"; "x = 1" ]
-    Assert.Equal<string option>(Some "1", Ini.tryFindNested "alpha.beta:x" ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFindNested (key "alpha.beta:x") ini)
 
 [<Fact>]
 let ``tryFindNested falls back to the parent section`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<string option>(Some "1", Ini.tryFindNested "alpha.beta:x" ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFindNested (key "alpha.beta:x") ini)
 
 [<Fact>]
 let ``tryFindNested walks the whole hierarchy up to the root`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<string option>(Some "2", Ini.tryFindNested "alpha.beta.gamma:y" ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFindNested "alpha.beta.gamma:x" ini)
-    Assert.Equal<string option>(Some "0", Ini.tryFindNested "alpha.beta.gamma:root" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFindNested (key "alpha.beta.gamma:y") ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFindNested (key "alpha.beta.gamma:x") ini)
+    Assert.Equal<string option>(Some "0", Ini.tryFindNested (key "alpha.beta.gamma:root") ini)
 
 [<Fact>]
 let ``tryFindNested prefers the most specific section`` () =
     let ini = create [ "x = root"; "[alpha]"; "x = alpha"; "[alpha.beta]"; "x = beta" ]
-    Assert.Equal<string option>(Some "beta", Ini.tryFindNested "alpha.beta:x" ini)
-    Assert.Equal<string option>(Some "alpha", Ini.tryFindNested "alpha:x" ini)
-    Assert.Equal<string option>(Some "root", Ini.tryFindNested "x" ini)
+    Assert.Equal<string option>(Some "beta", Ini.tryFindNested (key "alpha.beta:x") ini)
+    Assert.Equal<string option>(Some "alpha", Ini.tryFindNested (key "alpha:x") ini)
+    Assert.Equal<string option>(Some "root", Ini.tryFindNested (key "x") ini)
 
 [<Fact>]
 let ``tryFindNested returns None when no ancestor has the parameter`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<string option>(None, Ini.tryFindNested "alpha.beta:nope" ini)
+    Assert.Equal<string option>(None, Ini.tryFindNested (key "alpha.beta:nope") ini)
 
 [<Fact>]
 let ``tryFindNested does not search sibling or child sections`` () =
     let ini = create [ "[alpha.beta]"; "x = 1" ]
-    Assert.Equal<string option>(None, Ini.tryFindNested "alpha.gamma:x" ini)
-    Assert.Equal<string option>(None, Ini.tryFindNested "alpha:x" ini)
+    Assert.Equal<string option>(None, Ini.tryFindNested (key "alpha.gamma:x") ini)
+    Assert.Equal<string option>(None, Ini.tryFindNested (key "alpha:x") ini)
 
 // ---------------------------------------------------------------- generic lookup
 
@@ -402,79 +393,60 @@ let ``tryFindValue parses any IParsable type`` () =
 
     Assert.Equal<Result<Guid, ParserError> option>(
         Some(Ok(Guid "0f8fad5b-d9cb-469f-a165-70867728950e")),
-        Ini.tryFindValue<Guid> "guid" ini
+        Ini.tryFindAs<Guid> (key "guid") ini
     )
 
-    Assert.Equal<Result<TimeSpan, ParserError> option>(Some(Ok(TimeSpan.FromMinutes 5.0)), Ini.tryFindValue<TimeSpan> "span" ini)
+    Assert.Equal<Result<TimeSpan, ParserError> option>(Some(Ok(TimeSpan.FromMinutes 5.0)), Ini.tryFindAs<TimeSpan> (key "span") ini)
 
-    Assert.Equal<Result<DateOnly, ParserError> option>(Some(Ok(DateOnly(2026, 10, 21))), Ini.tryFindValue<DateOnly> "date" ini)
+    Assert.Equal<Result<DateOnly, ParserError> option>(Some(Ok(DateOnly(2026, 10, 21))), Ini.tryFindAs<DateOnly> (key "date") ini)
 
 [<Fact>]
 let ``tryFindValue reports an unparsable value as InvalidValue`` () =
     let ini = create [ "x = nope" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindValue<int> "x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindAs<int> (key "x") ini)
 
 [<Fact>]
 let ``tryFindValue parses numbers under the invariant culture`` () =
     let ini = create [ "x = 3.14"; "y = 1,234" ]
-    Assert.Equal<Result<float, ParserError> option>(Some(Ok 3.14), Ini.tryFindValue<float> "x" ini)
-    Assert.Equal<Result<float, ParserError> option>(Some(Ok 1234.0), Ini.tryFindValue<float> "y" ini)
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 3.14), Ini.tryFindAs<float> (key "x") ini)
+    Assert.Equal<Result<float, ParserError> option>(Some(Ok 1234.0), Ini.tryFindAs<float> (key "y") ini)
 
 [<Fact>]
 let ``tryFindValue rejects a thousands separator in an integer`` () =
     let ini = create [ "x = 1,234" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "1,234")), Ini.tryFindValue<int> "x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "1,234")), Ini.tryFindAs<int> (key "x") ini)
 
 [<Fact>]
 let ``tryFindValue returns None for a missing key`` () =
     let ini = create [ "x = 42" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> "nope" ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindAs<int> (key "nope") ini)
 
 [<Fact>]
 let ``tryFindValue never walks the section hierarchy`` () =
     let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> "alpha:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindAs<int> (key "alpha:x") ini)
 
 [<Fact>]
 let ``tryFindNestedValue falls back to the parent section`` () =
     let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), Ini.tryFindNestedValue<int> "alpha.beta:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), Ini.tryFindNestedAs<int> (key "alpha.beta:x") ini)
 
 [<Fact>]
 let ``tryFindNestedValue reports an unparsable value as InvalidValue`` () =
     let ini = create [ "x = nope"; "[alpha]"; "y = 1" ]
 
-    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindNestedValue<int> "alpha:x" ini)
+    Assert.Equal<Result<int, ParserError> option>(Some(Error(InvalidValue "nope")), Ini.tryFindNestedAs<int> (key "alpha:x") ini)
 
 [<Fact>]
 let ``tryFindNestedValue returns None when no ancestor has the parameter`` () =
     let ini = create [ "[alpha]"; "x = 42" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValue<int> "alpha.beta:nope" ini)
-
-[<Fact>]
-let ``the generic lookups reject a null key`` () =
-    let ini = create [ "x = 1" ]
-
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindValue<int> null ini |> ignore) |> ignore
-
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNestedValue<int> null ini |> ignore)
-    |> ignore
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData(" ")>]
-[<InlineData("   ")>]
-[<InlineData("\t")>]
-let ``the generic lookups do not guard a blank key`` key =
-    let ini = create [ "x = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindValue<int> key ini)
-    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedValue<int> key ini)
+    Assert.Equal<Result<int, ParserError> option>(None, Ini.tryFindNestedAs<int> (key "alpha.beta:nope") ini)
 
 [<Fact>]
 let ``the generic members agree with the generic functions`` () =
     let ini = create [ "x = 42"; "[alpha]"; "y = 1" ]
-    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindValue<int> "x")
-    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindNestedValue<int> "alpha:x")
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindAs<int> "x")
+    Assert.Equal<Result<int, ParserError> option>(Some(Ok 42), ini.TryFindNestedAs<int> "alpha:x")
 
 // ---------------------------------------------------------------- equality
 
@@ -527,7 +499,7 @@ let ``appendLines adds entries to an existing ini`` () =
 
     match Ini.appendLines [ "[beta]"; "y = 2" ] ini with
     | Error err -> failwith $"%A{err}"
-    | Ok appended -> Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys appended)
+    | Ok appended -> Assert.Equal<Key list>([ key "alpha:x"; key "beta:y" ], keys appended)
 
 [<Fact>]
 let ``appendLines overwrites existing keys`` () =
@@ -537,7 +509,7 @@ let ``appendLines overwrites existing keys`` () =
     | Error err -> failwith $"%A{err}"
     | Ok appended ->
         Assert.Equal(1, Ini.count appended)
-        Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" appended)
+        Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") appended)
 
 [<Fact>]
 let ``appendLines leaves the original ini unchanged`` () =
@@ -545,7 +517,7 @@ let ``appendLines leaves the original ini unchanged`` () =
 
     match Ini.appendLines [ "[alpha]"; "x = 2" ] ini with
     | Error err -> failwith $"%A{err}"
-    | Ok _ -> Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
+    | Ok _ -> Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``appendLines starts at the root section`` () =
@@ -553,7 +525,7 @@ let ``appendLines starts at the root section`` () =
 
     match Ini.appendLines [ "y = 2" ] ini with
     | Error err -> failwith $"%A{err}"
-    | Ok appended -> Assert.Equal<string list>([ ":y"; "alpha:x" ], keys appended)
+    | Ok appended -> Assert.Equal<Key list>([ key ":y"; key "alpha:x" ], keys appended)
 
 [<Fact>]
 let ``appending to an empty ini is parsing`` () =
@@ -572,9 +544,9 @@ let ``appending a layer is independent of the layer below`` () =
 
     match Ini.appendLines layer below, Ini.appendLines layer belowWithTrailingSection with
     | Ok first, Ok second ->
-        Assert.Equal<string list>([ ":port"; "server:host" ], keys first)
-        Assert.Equal<string list>([ ":port"; "logging:level"; "server:host" ], keys second)
-        Assert.Equal<string option>(Some "9090", Ini.tryFind ":port" second)
+        Assert.Equal<Key list>([ key ":port"; key "server:host" ], keys first)
+        Assert.Equal<Key list>([ key ":port"; key "logging:level"; key "server:host" ], keys second)
+        Assert.Equal<string option>(Some "9090", Ini.tryFind (key ":port") second)
     | _ -> failwith "expected Ok, got Error"
 
 [<Fact>]
@@ -587,56 +559,46 @@ let ``appendLines reports an unparsable line`` () =
 
 // ---------------------------------------------------------------- add
 
-let private added key value ini =
-    match Ini.add key value ini with
-    | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %A{err}"
-
-let private addError key value ini =
-    match Ini.add key value ini with
-    | Ok _ -> failwith "expected Error, got Ok"
-    | Error err -> err
-
 [<Fact>]
 let ``add inserts a parameter into the root section`` () =
-    let ini = added "x" "1" Ini.empty
-    Assert.Equal<string list>([ ":x" ], keys ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind "x" ini)
+    let ini = Ini.add (key "x") "1" Ini.empty
+    Assert.Equal<Key list>([ key ":x" ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "x") ini)
 
 [<Theory>]
 [<InlineData("alpha:x", "alpha:x")>]
 [<InlineData("alpha.beta:x", "alpha.beta:x")>]
 [<InlineData(":x", ":x")>]
 [<InlineData("x", ":x")>]
-let ``add accepts a sectioned key`` (key, expected) =
-    let ini = added key "1" Ini.empty
-    Assert.Equal<string list>([ expected ], keys ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind key ini)
+let ``add accepts a sectioned key`` (k, expected) =
+    let ini = Ini.add (key k) "1" Ini.empty
+    Assert.Equal<Key list>([ key expected ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key k) ini)
 
 [<Fact>]
 let ``add overwrites an existing key`` () =
-    let ini = create [ "[alpha]"; "x = 1" ] |> added "alpha:x" "2"
+    let ini = create [ "[alpha]"; "x = 1" ] |> Ini.add (key "alpha:x") "2"
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``add matches an existing key case insensitively`` () =
-    let ini = create [ "[alpha]"; "x = 1" ] |> added "ALPHA:X" "2"
+    let ini = create [ "[alpha]"; "x = 1" ] |> Ini.add (key "ALPHA:X") "2"
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``add leaves the original ini unchanged`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    added "alpha:x" "2" ini |> ignore
-    added "beta:y" "2" ini |> ignore
+    Ini.add (key "alpha:x") "2" ini |> ignore
+    Ini.add (key "beta:y") "2" ini |> ignore
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``add stores the value verbatim`` () =
-    let ini = added "x" " a ; b # c = d " Ini.empty
-    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.tryFind "x" ini)
+    let ini = Ini.add (key "x") " a ; b # c = d " Ini.empty
+    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.tryFind (key "x") ini)
 
 [<Theory>]
 [<InlineData("")>]
@@ -644,66 +606,33 @@ let ``add stores the value verbatim`` () =
 [<InlineData("   ")>]
 [<InlineData("\t")>]
 let ``add accepts a blank value`` value =
-    Assert.Equal<string option>(Some value, added "x" value Ini.empty |> Ini.tryFind "x")
-
-[<Theory>]
-[<InlineData("a b")>]
-[<InlineData("a=b")>]
-[<InlineData("a;b")>]
-[<InlineData("a#b")>]
-[<InlineData("[a]")>]
-[<InlineData("alpha:x:y")>]
-[<InlineData("alpha:")>]
-[<InlineData(":")>]
-[<InlineData("alpha : x")>]
-[<InlineData("alpha:a b")>]
-[<InlineData("a b:x")>]
-[<InlineData(" alpha:x")>]
-[<InlineData("alpha:x ")>]
-let ``add rejects a key the parser could not read back`` key =
-    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData(" ")>]
-[<InlineData("   ")>]
-[<InlineData("\t")>]
-let ``add rejects a blank key`` key =
-    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
-
-[<Fact>]
-let ``a key is not trimmed so add and tryFind always agree`` () =
-    Assert.Equal<ParserError>(InvalidKey " x ", addError " x " "1" Ini.empty)
-
-    for key in [ "x"; ":x"; "alpha:x"; "alpha.beta:x" ] do
-        Assert.Equal<string option>(Some "1", added key "1" Ini.empty |> Ini.tryFind key)
-        Assert.True(added key "1" Ini.empty |> Ini.containsKey key)
+    Assert.Equal<string option>(Some value, Ini.add (key "x") value Ini.empty |> Ini.tryFind (key "x"))
 
 [<Fact>]
 let ``a key added in code can be found by a nested lookup`` () =
-    let ini = added "alpha:x" "1" Ini.empty
-    Assert.Equal<string option>(Some "1", Ini.tryFindNested "alpha.beta.gamma:x" ini)
+    let ini = Ini.add (key "alpha:x") "1" Ini.empty
+    Assert.Equal<string option>(Some "1", Ini.tryFindNested (key "alpha.beta.gamma:x") ini)
 
 [<Fact>]
 let ``add equals parsing the same parameter`` () =
-    Assert.Equal<Ini>(create [ "[alpha]"; "x = 1" ], added "alpha:x" "1" Ini.empty)
+    Assert.Equal<Ini>(create [ "[alpha]"; "x = 1" ], Ini.add (key "alpha:x") "1" Ini.empty)
 
 // ---------------------------------------------------------------- remove
 
 [<Fact>]
 let ``remove deletes a key`` () =
-    let ini = create [ "[alpha]"; "x = 1"; "y = 2" ] |> Ini.remove "alpha:x"
-    Assert.Equal<string list>([ "alpha:y" ], keys ini)
+    let ini = create [ "[alpha]"; "x = 1"; "y = 2" ] |> Ini.remove (key "alpha:x")
+    Assert.Equal<Key list>([ key "alpha:y" ], keys ini)
 
 [<Fact>]
 let ``remove is a no-op for a missing key`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(ini, ini |> Ini.remove "beta:y")
-    Assert.Equal<Ini>(ini, ini |> Ini.remove "alpha:nope")
+    Assert.Equal<Ini>(ini, ini |> Ini.remove (key "beta:y"))
+    Assert.Equal<Ini>(ini, ini |> Ini.remove (key "alpha:nope"))
 
 [<Fact>]
 let ``remove is a no-op on an empty ini`` () =
-    Assert.Equal<Ini>(Ini.empty, Ini.empty |> Ini.remove "alpha:x")
+    Assert.Equal<Ini>(Ini.empty, Ini.empty |> Ini.remove (key "alpha:x"))
 
 [<Theory>]
 [<InlineData("alpha:x")>]
@@ -713,29 +642,16 @@ let ``remove matches a key case insensitively`` key =
 
 [<Fact>]
 let ``remove targets the root section for a key without a separator`` () =
-    let ini = create [ "x = 1"; "[alpha]"; "x = 2" ] |> Ini.remove "x"
-    Assert.Equal<string list>([ "alpha:x" ], keys ini)
+    let ini = create [ "x = 1"; "[alpha]"; "x = 2" ] |> Ini.remove (key "x")
+    Assert.Equal<Key list>([ key "alpha:x" ], keys ini)
 
 [<Fact>]
 let ``remove leaves the original ini unchanged`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    ini |> Ini.remove "alpha:x" |> ignore
-    Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
-
-[<Fact>]
-let ``remove ignores an invalid key`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(ini, ini |> Ini.remove "a b")
+    ini |> Ini.remove (key "alpha:x") |> ignore
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") ini)
 
 // ---------------------------------------------------------------- argument checks
-
-[<Fact>]
-let ``fromLines rejects null lines`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.fromLines null |> ignore) |> ignore
-
-[<Fact>]
-let ``appendLines rejects null lines`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.appendLines null Ini.empty |> ignore) |> ignore
 
 [<Fact>]
 let ``appendLines rejects a null line`` () =
@@ -745,45 +661,7 @@ let ``appendLines rejects a null line`` () =
 [<Fact>]
 let ``fromLines rejects a null line`` () =
     Assert.Throws<ArgumentNullException>(fun () -> Ini.fromLines [ "x = 1"; null ] |> ignore) |> ignore
-
-[<Fact>]
-let ``lookups reject a null key`` () =
-    let ini = create [ "x = 1" ]
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFind null ini |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.tryFindNested null ini |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.containsKey null ini |> ignore) |> ignore
-
-[<Fact>]
-let ``mutations reject a null key`` () =
-    let ini = create [ "x = 1" ]
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.add null "1" ini |> ignore) |> ignore
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.remove null ini |> ignore) |> ignore
-
-[<Fact>]
-let ``add rejects a null value`` () =
-    let ini = create [ "x = 1" ]
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.add "y" null ini |> ignore) |> ignore
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData(" ")>]
-[<InlineData("   ")>]
-[<InlineData("\t")>]
-let ``lookups do not guard a blank key`` key =
-    let ini = create [ "x = 1" ]
-    Assert.Equal<string option>(None, Ini.tryFind key ini)
-    Assert.Equal<string option>(None, Ini.tryFindNested key ini)
-    Assert.False(Ini.containsKey key ini)
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData(" ")>]
-[<InlineData("   ")>]
-[<InlineData("\t")>]
-let ``mutations reject a blank key`` key =
-    Assert.Equal<ParserError>(InvalidKey key, addError key "1" Ini.empty)
-    let ini = create [ "x = 1" ]
-    Assert.Equal<Ini>(ini, ini |> Ini.remove key)
+    
 
 [<Fact>]
 let ``file functions reject a null path`` () =
@@ -795,12 +673,12 @@ let ``file functions reject a null path`` () =
 [<Fact>]
 let ``sections lists every distinct section name`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    Assert.Equal<string list>([ ""; "alpha"; "beta" ], Ini.sections ini |> List.ofSeq)
+    Assert.Equal<Name list>([ name ""; name "alpha"; name "beta" ], Ini.sections ini |> List.ofSeq)
 
 [<Fact>]
 let ``sections has no duplicates for a reopened section`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2"; "[alpha]"; "z = 3" ]
-    Assert.Equal<string list>([ "alpha"; "beta" ], Ini.sections ini |> List.ofSeq)
+    Assert.Equal<Name list>([ name "alpha"; name "beta" ], Ini.sections ini |> List.ofSeq)
 
 [<Fact>]
 let ``sections of an empty ini is empty`` () = Assert.Empty(Ini.sections Ini.empty)
@@ -808,146 +686,129 @@ let ``sections of an empty ini is empty`` () = Assert.Empty(Ini.sections Ini.emp
 [<Fact>]
 let ``sections omits the root section when it has no parameters`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha" ], Ini.sections ini |> List.ofSeq)
+    Assert.Equal<Name list>([ name "alpha" ], Ini.sections ini |> List.ofSeq)
 
 [<Fact>]
 let ``sections treats differently cased names as one`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[ALPHA]"; "y = 2" ]
     Assert.Equal(1, Ini.sections ini |> Seq.length)
-    Assert.Equal<string list>([ "alpha" ], Ini.sections ini |> List.ofSeq |> List.map (fun s -> s.ToLowerInvariant()))
+    Assert.Equal<Name list>([ name "alpha" ], Ini.sections ini  |> List.ofSeq)
 
 [<Fact>]
 let ``sections includes a child section as its own dotted name`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<string list>([ "alpha"; "alpha.beta" ], Ini.sections ini |> List.ofSeq)
+    Assert.Equal<Name list>([ name "alpha"; name "alpha.beta" ], Ini.sections ini |> List.ofSeq)
 
 [<Fact>]
 let ``section returns only that section's parameters, keyed as in the original`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    let alpha = Ini.section "alpha" ini
-    Assert.Equal<string list>([ "alpha:x" ], Ini.keys alpha |> List.ofSeq)
-    Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" alpha)
-    Assert.Equal<string option>(None, Ini.tryFind "x" alpha)
+    let alpha = Ini.section (name "alpha") ini
+    Assert.Equal<Key list>([ key "alpha:x" ], Ini.keys alpha |> List.ofSeq)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") alpha)
+    Assert.Equal<string option>(None, Ini.tryFind (key "x") alpha)
 
 [<Fact>]
 let ``section matches the name case insensitively`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(Ini.section "alpha" ini, Ini.section "ALPHA" ini)
-
-[<Fact>]
-let ``section merges parameters from every differently cased reopening`` () =
-    let ini = create [ "[alpha]"; "x = 1"; "[ALPHA]"; "y = 2" ]
-    Assert.Equal<string list>([ "ALPHA:y"; "alpha:x" ], Ini.section "alpha" ini |> Ini.keys |> List.ofSeq |> List.sort)
-    Assert.Equal(2, Ini.section "alpha" ini |> Ini.count)
+    Assert.Equal<Ini>(Ini.section (name "alpha") ini, Ini.section (name "ALPHA") ini)
 
 [<Fact>]
 let ``section excludes a dotted child section`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<string list>([ "alpha:x" ], Ini.section "alpha" ini |> Ini.keys |> List.ofSeq)
-    Assert.Equal<string list>([ "alpha.beta:y" ], Ini.section "alpha.beta" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ key "alpha:x" ], Ini.section (name "alpha") ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ key "alpha.beta:y" ], Ini.section (name "alpha.beta") ini |> Ini.keys |> List.ofSeq)
 
 [<Fact>]
 let ``section returns the root section for an empty name`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>([ ":root" ], Ini.section "" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ key ":root" ], Ini.section (name "") ini |> Ini.keys |> List.ofSeq)
 
 [<Fact>]
 let ``section is empty for a name with no parameters`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(Ini.empty, Ini.section "nope" ini)
+    Assert.Equal<Ini>(Ini.empty, Ini.section (name "nope") ini)
 
 [<Fact>]
-let ``section of an empty ini is empty`` () = Assert.Equal<Ini>(Ini.empty, Ini.section "alpha" Ini.empty)
-
-[<Fact>]
-let ``section does not guard a null name and simply matches nothing`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(Ini.empty, Ini.section null ini)
+let ``section of an empty ini is empty`` () = Assert.Equal<Ini>(Ini.empty, Ini.section (name "alpha") Ini.empty)
 
 [<Fact>]
 let ``section renders back to a valid standalone document`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    Assert.Equal<string list>([ "[alpha]"; "x = 1" ], Ini.section "alpha" ini |> Ini.toLines |> List.ofSeq)
+    Assert.Equal<string list>([ "[alpha]"; "x = 1" ], Ini.section (name "alpha") ini |> Ini.toLines |> List.ofSeq)
 
 [<Fact>]
 let ``removeSection removes every parameter of that section`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "y = 2"; "[beta]"; "z = 3" ]
-    let rest = Ini.removeSection "alpha" ini
-    Assert.Equal<string list>([ ":root"; "beta:z" ], Ini.keys rest |> List.ofSeq)
+    let rest = Ini.removeSection (name "alpha") ini
+    Assert.Equal<Key list>([ (key ":root"); (key "beta:z" ) ], Ini.keys rest |> List.ofSeq)
 
 [<Fact>]
 let ``removeSection matches the name case insensitively`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    Assert.Equal<Ini>(Ini.removeSection "alpha" ini, Ini.removeSection "ALPHA" ini)
+    Assert.Equal<Ini>(Ini.removeSection (name "alpha") ini, Ini.removeSection (name "ALPHA") ini)
 
 [<Fact>]
 let ``removeSection removes every differently cased reopening`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[ALPHA]"; "y = 2"; "[beta]"; "z = 3" ]
-    Assert.Equal<string list>([ "beta:z" ], Ini.removeSection "alpha" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ (key "beta:z" ) ], Ini.removeSection (name "alpha") ini |> Ini.keys |> List.ofSeq)
 
 [<Fact>]
 let ``removeSection keeps a dotted child section`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<string list>([ "alpha.beta:y" ], Ini.removeSection "alpha" ini |> Ini.keys |> List.ofSeq)
-    Assert.Equal<string list>([ "alpha:x" ], Ini.removeSection "alpha.beta" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ (key "alpha.beta:y" ) ], Ini.removeSection (name "alpha") ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ (key "alpha:x" ) ], Ini.removeSection (name "alpha.beta") ini |> Ini.keys |> List.ofSeq)
 
 [<Fact>]
 let ``removeSection removes the root section for an empty name`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>([ "alpha:x" ], Ini.removeSection "" ini |> Ini.keys |> List.ofSeq)
+    Assert.Equal<Key list>([ (key "alpha:x" ) ], Ini.removeSection (name "") ini |> Ini.keys |> List.ofSeq)
 
 [<Fact>]
 let ``removeSection is a no-op for a name with no parameters`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(ini, Ini.removeSection "nope" ini)
+    Assert.Equal<Ini>(ini, Ini.removeSection (name "nope") ini)
 
 [<Fact>]
 let ``removeSection of an empty ini is empty`` () =
-    Assert.Equal<Ini>(Ini.empty, Ini.removeSection "alpha" Ini.empty)
-
-[<Fact>]
-let ``removeSection does not guard a null name and simply matches nothing`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(ini, Ini.removeSection null ini)
+    Assert.Equal<Ini>(Ini.empty, Ini.removeSection (name "alpha") Ini.empty)
 
 [<Fact>]
 let ``removeSection leaves the original untouched`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    Ini.removeSection "alpha" ini |> ignore
-    Assert.Equal<string list>([ "alpha:x"; "beta:y" ], Ini.keys ini |> List.ofSeq)
+    Ini.removeSection (name "alpha") ini |> ignore
+    Assert.Equal<Key list>([ (key "alpha:x" ); (key "beta:y" ) ], Ini.keys ini |> List.ofSeq)
 
 [<Fact>]
 let ``section and removeSection partition the document`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
 
-    for name in [ ""; "alpha"; "alpha.beta"; "nope" ] do
-        let taken = Ini.section name ini
-        let rest = Ini.removeSection name ini
+    for n in [ ""; "alpha"; "alpha.beta"; "nope" ] do
+        let taken = Ini.section (name n) ini
+        let rest = Ini.removeSection (name n) ini
         Assert.Equal(Ini.count ini, Ini.count taken + Ini.count rest)
         Assert.Empty(Set.intersect (Ini.keys taken |> Set.ofSeq) (Ini.keys rest |> Set.ofSeq))
 
-        Assert.Equal<Set<string>>(Ini.keys ini |> Set.ofSeq, Set.union (Ini.keys taken |> Set.ofSeq) (Ini.keys rest |> Set.ofSeq))
+        Assert.Equal<Set<Key>>(Ini.keys ini |> Set.ofSeq, Set.union (Ini.keys taken |> Set.ofSeq) (Ini.keys rest |> Set.ofSeq))
 
 [<Fact>]
 let ``removeSection renders back to a valid document`` () =
     let ini = create [ "[alpha]"; "x = 1"; "[beta]"; "y = 2" ]
-    Assert.Equal<string list>([ "[beta]"; "y = 2" ], Ini.removeSection "alpha" ini |> Ini.toLines |> List.ofSeq)
-
+    Assert.Equal<string list>([ "[beta]"; "y = 2" ], Ini.removeSection (name "alpha") ini |> Ini.toLines |> List.ofSeq)
 
 // ---------------------------------------------------------------- enumeration
 
 let private pairs (ini: Ini) =
-    [ for pair in (ini :> IEnumerable<KeyValuePair<string, string>>) -> pair.Key, pair.Value ]
+    [ for pair in (ini :> IEnumerable<KeyValuePair<Key, string>>) -> pair.Key, pair.Value ]
 
 [<Fact>]
 let ``an ini enumerates its pairs in key order`` () =
     let ini = create [ "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
-    Assert.Equal<(string * string) list>([ "alpha:x", "1"; "beta:y", "2" ], pairs ini)
+    Assert.Equal<(Key * string) list>([ (key "alpha:x"), "1"; (key "beta:y"), "2" ], pairs ini)
 
 [<Fact>]
 let ``enumeration agrees with keys and values`` () =
     let ini = create [ "root = 0"; "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
-    Assert.Equal<string list>(keys ini, pairs ini |> List.map fst)
+    Assert.Equal<Key list>(keys ini, pairs ini |> List.map fst)
     Assert.Equal<string list>(values ini, pairs ini |> List.map snd)
     Assert.Equal(Ini.count ini, pairs ini |> List.length)
 
@@ -962,10 +823,10 @@ let ``the non generic enumerator yields the same pairs`` () =
     let acc =
         [ while enumerator.MoveNext() do
               match enumerator.Current with
-              | :? KeyValuePair<string, string> as pair -> yield pair.Key, pair.Value
+              | :? KeyValuePair<Key, string> as pair -> yield pair.Key, pair.Value
               | other -> failwith $"unexpected element: %A{other}" ]
 
-    Assert.Equal<(string * string) list>([ "alpha:x", "1"; "beta:y", "2" ], acc)
+    Assert.Equal<(Key * string) list>([ (key "alpha:x"), "1"; (key "beta:y"), "2" ], acc)
 
 [<Fact>]
 let ``enumeration terminates on a repeated pass`` () =
@@ -976,29 +837,29 @@ let ``enumeration terminates on a repeated pass`` () =
 
 // ---------------------------------------------------------------- toSeq
 
-let private tuples (pairs: (string * string) seq) = [ for pair in pairs -> fst pair, snd pair ]
+let private tuples (pairs: (Key * string) seq) = [ for pair in pairs -> fst pair, snd pair ]
 
 [<Fact>]
 let ``toSeq yields pairs in key order`` () =
     let ini = create [ "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
-    Assert.Equal<(string * string) list>([ "alpha:x", "1"; "beta:y", "2" ], Ini.toSeq ini |> tuples)
+    Assert.Equal<(Key * string) list>([ (key "alpha:x"), "1"; (key "beta:y"), "2" ], Ini.toSeq ini |> tuples)
 
 [<Fact>]
 let ``toSeq yields the same shape ofSeq takes`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<(string * string) list>([ "alpha:x", "1" ], Ini.toSeq ini |> tuples)
+    Assert.Equal<(Key * string) list>([ (key "alpha:x"), "1" ], Ini.toSeq ini |> tuples)
 
 [<Fact>]
 let ``toSeq agrees with keys and values`` () =
     let ini = create [ "root = 0"; "[beta]"; "y = 2"; "[alpha]"; "x = 1" ]
     let pairs = Ini.toSeq ini |> tuples
-    Assert.Equal<string list>(keys ini, pairs |> List.map fst)
+    Assert.Equal<Key list>(keys ini, pairs |> List.map fst)
     Assert.Equal<string list>(values ini, pairs |> List.map snd)
 
 [<Fact>]
 let ``toSeq agrees with enumerating the ini`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal<(string * string) list>(pairs ini, Ini.toSeq ini |> tuples)
+    Assert.Equal<(Key * string) list>(pairs ini, Ini.toSeq ini |> tuples)
 
 [<Fact>]
 let ``toSeq of an empty ini is empty`` () = Assert.Empty(Ini.toSeq Ini.empty)
@@ -1006,285 +867,100 @@ let ``toSeq of an empty ini is empty`` () = Assert.Empty(Ini.toSeq Ini.empty)
 [<Fact>]
 let ``toSeq yields the stored key including the root separator`` () =
     let ini = create [ "x = 1" ]
-    Assert.Equal<(string * string) list>([ ":x", "1" ], Ini.toSeq ini |> tuples)
+    Assert.Equal<(Key * string) list>([ (key ":x"), "1" ], Ini.toSeq ini |> tuples)
 
 // ---------------------------------------------------------------- ofSeq
 
-let private ofSeq pairs =
-    match Ini.ofSeq pairs with
-    | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %A{err}"
-
-let private ofSeqError pairs =
-    match Ini.ofSeq pairs with
-    | Ok _ -> failwith "expected Error, got Ok"
-    | Error err -> err
-
 [<Fact>]
 let ``ofSeq builds an ini from pairs`` () =
-    let ini = ofSeq [ "alpha:x", "1"; "beta:y", "2" ]
-    Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys ini)
+    let ini = Ini.ofSeq [ (key "alpha:x"), "1"; (key "beta:y"), "2" ]
+    Assert.Equal<Key list>([ (key "alpha:x"); (key "beta:y") ], keys ini)
     Assert.Equal<string list>([ "1"; "2" ], values ini)
 
 [<Fact>]
-let ``ofSeq of no pairs is empty`` () = Assert.Equal<Ini>(Ini.empty, ofSeq [])
-
+let ``ofSeq of no pairs is empty`` () = Assert.Equal<Ini>(Ini.empty, Ini.ofSeq [])
 [<Fact>]
 let ``ofSeq normalises a key without a separator to the root section`` () =
-    Assert.Equal<string list>([ ":x" ], keys (ofSeq [ "x", "1" ]))
-    Assert.Equal<Ini>(ofSeq [ ":x", "1" ], ofSeq [ "x", "1" ])
+    Assert.Equal<Key list>([ (key ":x") ], keys (Ini.ofSeq [ (key "x"), "1" ]))
+    Assert.Equal<Ini>(Ini.ofSeq [ (key ":x"), "1" ], Ini.ofSeq [ (key "x"), "1" ])
 
 [<Fact>]
 let ``ofSeq orders pairs by key, not by position`` () =
-    let ini = ofSeq [ "beta:y", "2"; "root", "0"; "alpha:x", "1" ]
-    Assert.Equal<string list>([ ":root"; "alpha:x"; "beta:y" ], keys ini)
+    let ini = Ini.ofSeq [ (key "beta:y"), "2"; (key "root"), "0"; (key "alpha:x"), "1" ]
+    Assert.Equal<Key list>([ (key ":root"); (key "alpha:x"); (key "beta:y") ], keys ini)
 
 [<Fact>]
 let ``ofSeq lets a later pair overwrite an earlier one`` () =
-    let ini = ofSeq [ "alpha:x", "1"; "ALPHA:X", "2" ]
+    let ini = Ini.ofSeq [ (key "alpha:x"), "1"; (key "ALPHA:X"), "2" ]
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``ofSeq stores values verbatim`` () =
-    Assert.Equal<string option>(Some " a ; b # c = d ", ofSeq [ "x", " a ; b # c = d " ] |> Ini.tryFind "x")
-    Assert.Equal<string option>(Some "", ofSeq [ "x", "" ] |> Ini.tryFind "x")
+    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.ofSeq [ (key "x"), " a ; b # c = d " ] |> Ini.tryFind (key "x"))
+    Assert.Equal<string option>(Some "", Ini.ofSeq [ (key "x"), "" ] |> Ini.tryFind (key "x"))
 
 [<Fact>]
 let ``ofSeq equals parsing the same document`` () =
-    Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], ofSeq [ "root", "0"; "alpha:x", "1" ])
+    Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], Ini.ofSeq [ (key "root"), "0"; (key "alpha:x"), "1" ])
 
 [<Fact>]
 let ``ofSeq equals adding the same pairs one by one`` () =
-    let added = Ini.empty |> added "alpha:x" "1" |> added "beta:y" "2"
-    Assert.Equal<Ini>(added, ofSeq [ "alpha:x", "1"; "beta:y", "2" ])
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData("   ")>]
-[<InlineData("a b")>]
-[<InlineData("a=b")>]
-[<InlineData("[a]")>]
-[<InlineData("alpha:x:y")>]
-[<InlineData("alpha:")>]
-[<InlineData(":")>]
-[<InlineData(" alpha:x")>]
-[<InlineData("alpha:x ")>]
-let ``ofSeq rejects a key the parser could not read back`` key =
-    Assert.Equal<ParserError>(InvalidKey key, ofSeqError [ key, "1" ])
-
-[<Fact>]
-let ``ofSeq reports the first invalid key`` () =
-    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError [ "x", "1"; "a b", "2"; "c d", "3" ])
-
-[<Fact>]
-let ``ofSeq stops at the first invalid key`` () =
-    let consumed = ref 0
-
-    let input =
-        seq {
-            for i in 1..10000 do
-                consumed.Value <- consumed.Value + 1
-                if i = 3 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
-        }
-
-    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
-    Assert.Equal(3, consumed.Value)
-
-[<Fact>]
-let ``ofSeq disposes the enumerator when it stops early`` () =
-    let disposed = ref false
-
-    let input =
-        seq {
-            try
-                yield ("ok", "1")
-                yield ("a b", "2")
-                yield ("never", "reached")
-            finally
-                disposed.Value <- true
-        }
-
-    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
-    Assert.True(disposed.Value, "the enumerator was not disposed")
-
-[<Fact(Timeout = 10000)>]
-let ``ofSeq terminates on an infinite sequence containing an invalid key`` () =
-    let input =
-        seq {
-            let mutable i = 0
-
-            while true do
-                i <- i + 1
-                if i = 5 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
-        }
-
-    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError input)
-
-[<Fact>]
-let ``ofSeq rejects null pairs`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq null |> ignore) |> ignore
-
-[<Fact>]
-let ``ofSeq rejects a pair with a null key`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ (null, "1") ] |> ignore) |> ignore
-
-[<Fact>]
-let ``ofSeq rejects a pair with a null value`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.ofSeq [ ("x", null) ] |> ignore) |> ignore
+    let added = Ini.empty |> Ini.add (key "alpha:x") "1" |> Ini.add (key "beta:y") "2"
+    Assert.Equal<Ini>(added, Ini.ofSeq [ (key "alpha:x"), "1"; (key "beta:y"), "2" ])
 
 [<Fact>]
 let ``toSeq and ofSeq round trip`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<Ini>(ini, ini |> Ini.toSeq |> ofSeq)
+    Assert.Equal<Ini>(ini, ini |> Ini.toSeq |> Ini.ofSeq)
 
 // ---------------------------------------------------------------- append (pairs)
 
-let private appended pairs ini =
-    match Ini.append pairs ini with
-    | Ok ini -> ini
-    | Error err -> failwith $"expected Ok, got Error: %A{err}"
-
-let private appendError pairs ini =
-    match Ini.append pairs ini with
-    | Ok _ -> failwith "expected Error, got Ok"
-    | Error err -> err
-
 [<Fact>]
 let ``append adds pairs to an existing ini`` () =
-    let ini = create [ "[alpha]"; "x = 1" ] |> appended [ "beta:y", "2"; "root", "0" ]
-    Assert.Equal<string list>([ ":root"; "alpha:x"; "beta:y" ], keys ini)
+    let ini = create [ "[alpha]"; "x = 1" ] |> Ini.append [ (key "beta:y"), "2"; (key "root"), "0" ]
+    Assert.Equal<Key list>([ (key ":root"); (key "alpha:x"); (key "beta:y") ], keys ini)
     Assert.Equal<string list>([ "0"; "1"; "2" ], values ini)
 
 [<Fact>]
 let ``append overwrites existing keys case insensitively`` () =
-    let ini = create [ "[alpha]"; "x = 1" ] |> appended [ "ALPHA:X", "2" ]
+    let ini = create [ "[alpha]"; "x = 1" ] |> Ini.append [ (key "ALPHA:X"), "2" ]
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``append lets a later pair overwrite an earlier one`` () =
-    let ini = Ini.empty |> appended [ "x", "1"; "X", "2" ]
+    let ini = Ini.empty |> Ini.append [ (key "x"), "1"; (key "X"), "2" ]
     Assert.Equal(1, Ini.count ini)
-    Assert.Equal<string option>(Some "2", Ini.tryFind "x" ini)
+    Assert.Equal<string option>(Some "2", Ini.tryFind (key "x") ini)
 
 [<Fact>]
 let ``append leaves the original ini unchanged`` () =
     let ini = create [ "[alpha]"; "x = 1" ]
-    appended [ "alpha:x", "2"; "beta:y", "3" ] ini |> ignore
-    Assert.Equal<string list>([ "alpha:x" ], keys ini)
-    Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini)
+    Ini.append [ (key "alpha:x"), "2"; (key "beta:y"), "3" ] ini |> ignore
+    Assert.Equal<Key list>([ (key "alpha:x") ], keys ini)
+    Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") ini)
 
 [<Fact>]
 let ``append of no pairs returns an equal ini`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-    Assert.Equal<Ini>(ini, appended [] ini)
+    Assert.Equal<Ini>(ini, Ini.append [] ini)
 
 [<Fact>]
 let ``append to an empty ini is ofSeq`` () =
-    let pairs = [ "root", "0"; "alpha:x", "1"; "alpha.beta:y", "2" ]
-    Assert.Equal<Ini>(ofSeq pairs, appended pairs Ini.empty)
-
-[<Fact>]
-let ``append equals adding the same pairs one by one`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    let expected = ini |> added "alpha:x" "2" |> added "beta:y" "3"
-    Assert.Equal<Ini>(expected, appended [ "alpha:x", "2"; "beta:y", "3" ] ini)
+    let pairs = [ (key "root"), "0"; (key "alpha:x"), "1"; (key "alpha.beta:y"), "2" ]
+    Assert.Equal<Ini>(Ini.ofSeq pairs, Ini.append pairs Ini.empty)
 
 [<Fact>]
 let ``append stores values verbatim`` () =
-    let ini = Ini.empty |> appended [ "x", " a ; b # c = d "; "y", "" ]
-    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.tryFind "x" ini)
-    Assert.Equal<string option>(Some "", Ini.tryFind "y" ini)
+    let ini = Ini.empty |> Ini.append [ (key "x"), " a ; b # c = d "; (key "y"), "" ]
+    Assert.Equal<string option>(Some " a ; b # c = d ", Ini.tryFind (key "x") ini)
+    Assert.Equal<string option>(Some "", Ini.tryFind (key "y") ini)
 
 [<Fact>]
 let ``append and toSeq round trip`` () =
     let ini = create [ "root = 0"; "[alpha]"; "x = 1"; "[alpha.beta]"; "y = 2" ]
-    Assert.Equal<Ini>(ini, Ini.empty |> appended (Ini.toSeq ini))
-
-[<Theory>]
-[<InlineData("")>]
-[<InlineData("a b")>]
-[<InlineData("a=b")>]
-[<InlineData("[a]")>]
-[<InlineData("alpha:x:y")>]
-[<InlineData("alpha:")>]
-[<InlineData(":")>]
-let ``append rejects an invalid key`` key =
-    let ini = create [ "[alpha]"; "x = 1" ]
-    Assert.Equal<ParserError>(InvalidKey key, appendError [ key, "1" ] ini)
-
-[<Fact>]
-let ``append reports the first invalid key`` () =
-    let ini = create [ "x = 1" ]
-    Assert.Equal<ParserError>(InvalidKey "a b", appendError [ "y", "2"; "a b", "3"; "c d", "4" ] ini)
-
-[<Fact>]
-let ``append stops at the first invalid key`` () =
-    let consumed = ref 0
-
-    let input =
-        seq {
-            for i in 1..10000 do
-                consumed.Value <- consumed.Value + 1
-                if i = 3 then yield ("a b", "oops") else yield ($"x{i}", $"{i}")
-        }
-
-    Assert.Equal<ParserError>(InvalidKey "a b", appendError input Ini.empty)
-    Assert.Equal(3, consumed.Value)
-
-[<Fact>]
-let ``append disposes the enumerator when it stops early`` () =
-    let disposed = ref false
-
-    let input =
-        seq {
-            try
-                yield ("ok", "1")
-                yield ("a b", "2")
-                yield ("never", "reached")
-            finally
-                disposed.Value <- true
-        }
-
-    Assert.Equal<ParserError>(InvalidKey "a b", appendError input Ini.empty)
-    Assert.True(disposed.Value, "the enumerator was not disposed")
-
-[<Fact>]
-let ``append discards the pairs when a later key is invalid`` () =
-    let ini = create [ "x = 1" ]
-    Assert.Equal<ParserError>(InvalidKey "a b", appendError [ "y", "2"; "a b", "3" ] ini)
-    Assert.Equal<string list>([ ":x" ], keys ini)
-
-[<Fact>]
-let ``append rejects null pairs`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.append null Ini.empty |> ignore) |> ignore
-
-[<Fact>]
-let ``append rejects a pair with a null key`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.append [ (null, "1") ] Ini.empty |> ignore)
-    |> ignore
-
-[<Fact>]
-let ``append rejects a pair with a null value`` () =
-    Assert.Throws<ArgumentNullException>(fun () -> Ini.append [ ("x", null) ] Ini.empty |> ignore)
-    |> ignore
-
-[<Fact>]
-let ``the Append member agrees with the append function`` () =
-    let ini = create [ "[alpha]"; "x = 1" ]
-
-    match ini.Append [ KeyValuePair("alpha:x", "2"); KeyValuePair("beta:y", "3") ] with
-    | Error err -> failwith $"%A{err}"
-    | Ok result -> Assert.Equal<Ini>(appended [ "alpha:x", "2"; "beta:y", "3" ] ini, result)
-
-[<Fact>]
-let ``the Append member accepts an ini`` () =
-    let ini = create [ "root = 0"; "[alpha]"; "x = 1" ]
-
-    match Ini.empty.Append ini with
-    | Error err -> failwith $"%A{err}"
-    | Ok result -> Assert.Equal<Ini>(ini, result)
+    Assert.Equal<Ini>(ini, Ini.empty |> Ini.append (Ini.toSeq ini))
 
 // ---------------------------------------------------------------- files
 
@@ -1310,7 +986,7 @@ let ``fromFile parses the file`` () =
         match Ini.fromFile path with
         | Error err -> failwith $"%A{err}"
         | Ok ini ->
-            Assert.Equal<string list>([ ":root"; "alpha:x" ], keys ini)
+            Assert.Equal<Key list>([ (key ":root"); (key "alpha:x") ], keys ini)
             Assert.Equal<Ini>(create [ "root = 0"; "[alpha]"; "x = 1" ], ini))
 
 [<Fact>]
@@ -1367,9 +1043,9 @@ let ``appendFile merges the file over an existing ini`` () =
         match Ini.appendFile path ini with
         | Error err -> failwith $"%A{err}"
         | Ok appended ->
-            Assert.Equal<string list>([ "alpha:x"; "beta:y" ], keys appended)
-            Assert.Equal<string option>(Some "2", Ini.tryFind "alpha:x" appended)
-            Assert.Equal<string option>(Some "1", Ini.tryFind "alpha:x" ini))
+            Assert.Equal<Key list>([ key "alpha:x"; key "beta:y" ], keys appended)
+            Assert.Equal<string option>(Some "2", Ini.tryFind (key "alpha:x") appended)
+            Assert.Equal<string option>(Some "1", Ini.tryFind (key "alpha:x") ini))
 
 [<Fact>]
 let ``appendFile starts at the root section`` () =
@@ -1378,7 +1054,7 @@ let ``appendFile starts at the root section`` () =
 
         match Ini.appendFile path ini with
         | Error err -> failwith $"%A{err}"
-        | Ok appended -> Assert.Equal<string list>([ ":y"; "alpha:x" ], keys appended))
+        | Ok appended -> Assert.Equal<Key list>([ key ":y"; key "alpha:x" ], keys appended))
 
 [<Fact>]
 let ``appendFile reports an unparsable line`` () =
@@ -1429,7 +1105,7 @@ let ``toLines groups parameters under a header, separating sections with a blank
 let ``the root section sorts first, ahead of a section name that would sort before ':'`` () =
     let ini = create [ "x = root"; "[0]"; "a = 1"; "[-]"; "b = 2" ]
 
-    Assert.Equal<string list>([ ":x"; "-:b"; "0:a" ], keys ini)
+    Assert.Equal<Key list>([ key ":x"; key "-:b"; key "0:a" ], keys ini)
     Assert.Equal<string list>([ "x = root"; ""; "[-]"; "b = 2"; ""; "[0]"; "a = 1" ], lines ini)
     Assert.Equal<Ini>(ini, create (Ini.toLines ini))
 
@@ -1437,7 +1113,7 @@ let ``the root section sorts first, ahead of a section name that would sort befo
 let ``a parent section sorts before its children`` () =
     let ini = create [ "[server.dev]"; "port = 5000"; "[server]"; "host = localhost" ]
 
-    Assert.Equal<string list>([ "server:host"; "server.dev:port" ], keys ini)
+    Assert.Equal<Key list>([ key "server:host"; key "server.dev:port" ], keys ini)
     Assert.Equal<string list>([ "[server]"; "host = localhost"; ""; "[server.dev]"; "port = 5000" ], lines ini)
 
 [<Fact>]
@@ -1504,39 +1180,11 @@ let ``rendering an ini and parsing it back yields an equal ini`` () =
         Assert.Equal<Ini>(ini, create (Ini.toLines ini))
 
 [<Fact>]
-let ``rendering an ini built in code yields an equal ini`` () =
-    let ini = ofSeq [ "alpha:x", "1"; "alpha.beta:y", "2"; "z", "3"; "0:a", "4" ]
-
-    Assert.Equal<Ini>(ini, create (Ini.toLines ini))
-
-[<Fact>]
 let ``rendering is canonical, not faithful`` () =
     let ini =
         create [ "; a comment"; ""; "[beta]"; "y   =   2"; "# another"; "[alpha]"; "x = 1"; "[beta]"; "z = 3" ]
 
     Assert.Equal<string list>([ "[alpha]"; "x = 1"; ""; "[beta]"; "y = 2"; "z = 3" ], lines ini)
-
-[<Fact>]
-let ``a value with surrounding whitespace does not survive the round trip`` () =
-    let ini = added "x" " padded " Ini.empty
-
-    Assert.Equal<string list>([ "x =  padded " ], lines ini)
-    Assert.NotEqual<Ini>(ini, create (Ini.toLines ini))
-    Assert.Equal<string option>(Some "padded", create (Ini.toLines ini) |> Ini.tryFind "x")
-
-[<Fact>]
-let ``a value containing a newline renders as something the parser rejects`` () =
-    let ini = added "x" $"a{Environment.NewLine}b" Ini.empty
-
-    Assert.Equal<string list>([ $"x = a{Environment.NewLine}b" ], lines ini)
-
-    Assert.Equal<ParserError>(
-        InvalidLine "b",
-        error (
-            Ini.toLines ini
-            |> Seq.collect (fun line -> line.Split([| Environment.NewLine |], StringSplitOptions.None))
-        )
-    )
 
 // ---------------------------------------------------------------- toFile
 
@@ -1609,40 +1257,8 @@ let ``InvalidLine carries the line verbatim`` () =
     Assert.Equal<ParserError>(InvalidLine "  oops  ", error [ "  oops  " ])
 
 [<Fact>]
-let ``an invalid key is reported as InvalidKey`` () =
-    Assert.Equal<ParserError>(InvalidKey "a b", addError "a b" "1" Ini.empty)
-    Assert.Equal<ParserError>(InvalidKey "a b", ofSeqError [ "a b", "1" ])
-
-[<Fact>]
-let ``InvalidKey carries the key verbatim`` () =
-    Assert.Equal<ParserError>(InvalidKey " x ", addError " x " "1" Ini.empty)
-    Assert.Equal<ParserError>(InvalidKey "", addError "" "1" Ini.empty)
-
-[<Fact>]
-let ``lines are reported as InvalidLine and keys as InvalidKey`` () =
-    let path = tempPath "err-"
-
-    try
-        File.WriteAllLines(path, [ "oops" ])
-
-        match Ini.fromLines [ "oops" ], Ini.fromFile path, Ini.appendLines [ "oops" ] Ini.empty, Ini.appendFile path Ini.empty with
-        | Error a, Error b, Error c, Error d ->
-            Assert.Equal<ParserError list>(
-                [ InvalidLine "oops"; InvalidLine "oops"; InvalidLine "oops"; InvalidLine "oops" ],
-                [ a; b; c; d ]
-            )
-        | _ -> failwith "expected Error, got Ok"
-
-        match Ini.add "a b" "1" Ini.empty, Ini.ofSeq [ "a b", "1" ] with
-        | Error a, Error b -> Assert.Equal<ParserError list>([ InvalidKey "a b"; InvalidKey "a b" ], [ a; b ])
-        | _ -> failwith "expected Error, got Ok"
-    finally
-        if File.Exists path then
-            File.Delete path
-
-[<Fact>]
 let ``the two cases are distinct for the same text`` () =
-    Assert.NotEqual<ParserError>(InvalidKey "oops", InvalidLine "oops")
+    Assert.NotEqual<ParserError>(InvalidName "oops", InvalidLine "oops")
 
 [<Fact>]
 let ``parser errors are structurally equal`` () =
@@ -1654,11 +1270,11 @@ let ``parser errors are structurally equal`` () =
 let ``a parser error can be matched on its case`` () =
     match error [ "oops" ] with
     | InvalidLine line -> Assert.Equal("oops", line)
-    | InvalidKey key -> failwith $"expected InvalidLine, got InvalidKey %s{key}"
+    | InvalidName name -> failwith $"expected InvalidLine, got InvalidName %s{name}"
     | InvalidValue value -> failwith $"expected InvalidLine, got InvalidValue %s{value}"
 
 [<Fact>]
 let ``a parser error names its case and its text`` () =
     Assert.Equal("InvalidLine \"oops\"", string (InvalidLine "oops"))
-    Assert.Equal("InvalidKey \"a b\"", string (InvalidKey "a b"))
+    Assert.Equal("InvalidName \"a b\"", string (InvalidName "a b"))
     Assert.Equal("InvalidValue \"a\"", string (InvalidValue "a"))

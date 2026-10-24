@@ -44,7 +44,7 @@ public class IniTests
 
         Assert.False(ini.IsEmpty);
         Assert.Equal(1, ini.Count);
-        Assert.Equal(["alpha:x"], ini.Keys);
+        Assert.Equal([(Key)"alpha:x"], ini.Keys);
         Assert.Equal(["1"], ini.Values);
     }
 
@@ -58,15 +58,34 @@ public class IniTests
     }
 
     [Fact]
-    public void TryCreateRejectsNullLines()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.FromLines(null!));
-    }
-
-    [Fact]
     public void TryCreateRejectsANullLine()
     {
         Assert.Throws<ArgumentNullException>(() => Ini.FromLines(["x = 1", null!]));
+    }
+
+    // ------------------------------------------------------------ sections
+
+    [Fact]
+    public void SectionParseAndTryParseExposeSectionNamesToCSharp()
+    {
+        var section = Name.Parse("alpha");
+        var result = Name.TryParse("beta");
+
+        Assert.Equal("alpha", (string)section);
+        Assert.True(result.IsOk);
+        Assert.Equal("beta", (string)result.ResultValue);
+        Assert.True(Name.TryParse("invalid name").IsError);
+        Assert.Throws<ArgumentException>(() => Name.Parse("invalid name"));
+    }
+
+    [Fact]
+    public void SectionSupportsImplicitAndExplicitConversionsInCSharp()
+    {
+        var section = (Name)"alpha";
+        string name = section;
+
+        Assert.Equal("alpha", name);
+        Assert.Equal(Name.Parse("alpha"), section);
     }
 
     [Fact]
@@ -113,20 +132,6 @@ public class IniTests
         Assert.True(ini.TryFind("x") is { Value: "1" });
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData(" ")]
-    [InlineData("\t")]
-    public void LookupsDoNotGuardABlankKey(string key)
-    {
-        var ini = Create("x = 1");
-
-        Assert.Null(ini.TryFind(key));
-        Assert.Null(ini.TryFindNested(key));
-        Assert.False(ini.ContainsKey(key));
-        Assert.Equal(ini, ini.Remove(key));
-    }
-
     // ------------------------------------------------------------ nested lookup
 
     [Fact]
@@ -164,10 +169,10 @@ public class IniTests
     {
         var ini = Create("i = 42", "b = true", "f = 3.14", "span = 00:05:00");
 
-        Assert.True(ini.TryFindValue<int>("i") is { Value: { IsOk: true, ResultValue: 42 } });
-        Assert.True(ini.TryFindValue<bool>("b") is { Value: { IsOk: true, ResultValue: true } });
-        Assert.True(ini.TryFindValue<double>("f") is { Value: { IsOk: true, ResultValue: 3.14 } });
-        Assert.Equal(TimeSpan.FromMinutes(5), ini.TryFindValue<TimeSpan>("span")!.Value.ResultValue);
+        Assert.True(ini.TryFindAs<int>("i") is { Value: { IsOk: true, ResultValue: 42 } });
+        Assert.True(ini.TryFindAs<bool>("b") is { Value: { IsOk: true, ResultValue: true } });
+        Assert.True(ini.TryFindAs<double>("f") is { Value: { IsOk: true, ResultValue: 3.14 } });
+        Assert.Equal(TimeSpan.FromMinutes(5), ini.TryFindAs<TimeSpan>("span")!.Value.ResultValue);
     }
 
     [Fact]
@@ -175,8 +180,8 @@ public class IniTests
     {
         var ini = Create("x = nope");
 
-        Assert.True(ini.TryFindValue<int>("x") is { Value.IsError: true });
-        Assert.Equal(ParserError.NewInvalidValue("nope"), ini.TryFindValue<int>("x")!.Value.ErrorValue);
+        Assert.True(ini.TryFindAs<int>("x") is { Value.IsError: true });
+        Assert.Equal(ParserError.NewInvalidValue("nope"), ini.TryFindAs<int>("x")!.Value.ErrorValue);
     }
 
     [Fact]
@@ -184,7 +189,7 @@ public class IniTests
     {
         var ini = Create("x = 42");
 
-        Assert.Null(ini.TryFindValue<int>("nope"));
+        Assert.Null(ini.TryFindAs<int>("nope"));
     }
 
     [Fact]
@@ -192,7 +197,7 @@ public class IniTests
     {
         var ini = Create("x = 42", "[alpha]", "y = 1");
 
-        Assert.Null(ini.TryFindValue<int>("alpha:x"));
+        Assert.Null(ini.TryFindAs<int>("alpha:x"));
     }
 
     [Fact]
@@ -200,7 +205,7 @@ public class IniTests
     {
         var ini = Create("x = 42", "[alpha]", "y = 1");
 
-        Assert.True(ini.TryFindNestedValue<int>("alpha.beta:x") is { Value: { IsOk: true, ResultValue: 42 } });
+        Assert.True(ini.TryFindNestedAs<int>("alpha.beta:x") is { Value: { IsOk: true, ResultValue: 42 } });
     }
 
     [Fact]
@@ -208,7 +213,7 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 42");
 
-        Assert.Null(ini.TryFindNestedValue<int>("alpha.beta:nope"));
+        Assert.Null(ini.TryFindNestedAs<int>("alpha.beta:nope"));
     }
 
     // ------------------------------------------------------------ append
@@ -257,8 +262,7 @@ public class IniTests
 
         var result = ini.Add("beta:y", "2");
 
-        Assert.True(result.IsOk);
-        Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
+        Assert.Equal(["alpha:x", "beta:y"], result.Keys);
         Assert.Equal(1, ini.Count);
     }
 
@@ -267,9 +271,8 @@ public class IniTests
     {
         var result = Create("[alpha]", "x = 1").Add("ALPHA:X", "2");
 
-        Assert.True(result.IsOk);
-        Assert.Equal(1, result.ResultValue.Count);
-        Assert.True(result.ResultValue.TryFind("alpha:x") is { Value: "2" });
+        Assert.Equal(1, result.Count);
+        Assert.True(result.TryFind("alpha:x") is { Value: "2" });
     }
 
     [Theory]
@@ -278,10 +281,10 @@ public class IniTests
     [InlineData("alpha:x:y")]
     public void AddRejectsAnInvalidKey(string key)
     {
-        var result = Ini.Empty.Add(key, "1");
+        var result = Key.TryParse(key);
 
         Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidKey(key), result.ErrorValue);
+        Assert.Equal(ParserError.NewInvalidName(key), result.ErrorValue);
     }
 
     [Theory]
@@ -290,34 +293,10 @@ public class IniTests
     [InlineData("\t")]
     public void AddRejectsABlankKey(string key)
     {
-        var result = Ini.Empty.Add(key, "1");
+        var result = Key.TryParse(key);
 
         Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidKey(key), result.ErrorValue);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData(" ")]
-    [InlineData("\t")]
-    public void AddDoesNotGuardABlankValue(string value)
-    {
-        var result = Ini.Empty.Add("x", value);
-
-        Assert.True(result.IsOk);
-        Assert.True(result.ResultValue.TryFind("x") is { Value: var found } && found == value);
-    }
-
-    [Fact]
-    public void AddRejectsANullKey()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Add(null!, "1"));
-    }
-
-    [Fact]
-    public void AddRejectsANullValue()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Add("x", null!));
+        Assert.Equal(ParserError.NewInvalidName(key), result.ErrorValue);
     }
 
     [Fact]
@@ -369,7 +348,7 @@ public class IniTests
         var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
 
         var item = Assert.Single(ini.Sections);
-        Assert.Equal("alpha", item.ToLowerInvariant());
+        Assert.Equal("alpha", item.ToString().ToLowerInvariant());
     }
 
     [Fact]
@@ -408,7 +387,7 @@ public class IniTests
         var alpha = ini.Section("alpha");
 
         Assert.Equal(2, alpha.Count);
-        Assert.Equal(["ALPHA:y", "alpha:x"], alpha.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal([(Key)"alpha:x", (Key)"ALPHA:y"], alpha.Keys.OrderBy(k => k));
     }
 
     [Fact]
@@ -440,14 +419,6 @@ public class IniTests
     public void SectionOfAnEmptyIniIsEmpty()
     {
         Assert.Equal(Ini.Empty, Ini.Empty.Section("alpha"));
-    }
-
-    [Fact]
-    public void SectionDoesNotGuardANullNameAndSimplyMatchesNothing()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal(Ini.Empty, ini.Section(null!));
     }
 
     [Fact]
@@ -514,14 +485,6 @@ public class IniTests
     }
 
     [Fact]
-    public void RemoveSectionDoesNotGuardANullNameAndSimplyMatchesNothing()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal(ini, ini.RemoveSection(null!));
-    }
-
-    [Fact]
     public void RemoveSectionLeavesTheOriginalUntouched()
     {
         var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
@@ -577,7 +540,7 @@ public class IniTests
 
         var pairs = ini.Keys.Zip(ini.Values).ToList();
 
-        Assert.Equal(new List<(string, string)> { ("alpha:x", "1"), ("beta:y", "2") }, pairs);
+        Assert.Equal(new List<(Key, string)> { ("alpha:x", "1"), ("beta:y", "2") }, pairs);
     }
 
     [Fact]
@@ -615,7 +578,7 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
 
-        var betaOnly = ini.Where(pair => pair.Key.StartsWith("beta:")).Select(pair => pair.Value);
+        var betaOnly = ini.Where(pair => ((string)pair.Key).StartsWith("beta:")).Select(pair => pair.Value);
 
         Assert.Equal(["2"], betaOnly);
     }
@@ -635,7 +598,7 @@ public class IniTests
     {
         IEnumerable ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
 
-        var keys = (from KeyValuePair<string, string> pair in ini select pair.Key).ToList();
+        var keys = (from KeyValuePair<Key, string> pair in ini select pair.Key).ToList();
 
         Assert.Equal(["alpha:x", "beta:y"], keys);
     }
@@ -646,7 +609,7 @@ public class IniTests
         var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
 
         Assert.Equal(
-            [new KeyValuePair<string, string>("alpha:x", "1"), new KeyValuePair<string, string>("beta:y", "2")],
+            [new KeyValuePair<Key, string>("alpha:x", "1"), new KeyValuePair<Key, string>("beta:y", "2")],
             ini.AsEnumerable());
         Assert.Equal(ini, ini.AsEnumerable());
     }
@@ -656,20 +619,10 @@ public class IniTests
     [Fact]
     public void OfSeqBuildsAnIniFromPairs()
     {
-        var result = Ini.Create([KeyValuePair.Create("beta:y", "2"), KeyValuePair.Create("alpha:x", "1")]);
+        var result = Ini.Create([KeyValuePair.Create((Key)"beta:y", "2"), KeyValuePair.Create((Key)"alpha:x", "1")]);
 
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-        Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
-        Assert.Equal(Create("[alpha]", "x = 1", "[beta]", "y = 2"), result.ResultValue);
-    }
-
-    [Fact]
-    public void OfSeqRejectsAnInvalidKey()
-    {
-        var result = Ini.Create([KeyValuePair.Create("alpha:x", "1"), KeyValuePair.Create("a b", "2")]);
-
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidKey("a b"), result.ErrorValue);
+        Assert.Equal(["alpha:x", "beta:y"], result.Keys);
+        Assert.Equal(Create("[alpha]", "x = 1", "[beta]", "y = 2"), result);
     }
 
     [Fact]
@@ -679,26 +632,13 @@ public class IniTests
     }
 
     [Fact]
-    public void OfSeqRejectsAPairWithANullKey()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Create([KeyValuePair.Create((string)null!, "1")]));
-    }
-
-    [Fact]
-    public void OfSeqRejectsAPairWithANullValue()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Create([KeyValuePair.Create("x", (string)null!)]));
-    }
-
-    [Fact]
     public void CreateAndEnumerationRoundTrip()
     {
         var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
 
         var result = Ini.Create(ini.AsEnumerable());
 
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-        Assert.Equal(ini, result.ResultValue);
+        Assert.Equal(ini, result);
     }
 
     [Fact]
@@ -708,8 +648,7 @@ public class IniTests
 
         var result = Ini.Create(ini);
 
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-        Assert.Equal(ini, result.ResultValue);
+        Assert.Equal(ini, result);
     }
 
     // ------------------------------------------------------------ Append (pairs)
@@ -719,10 +658,9 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1");
 
-        var result = ini.Append([KeyValuePair.Create("beta:y", "2"), KeyValuePair.Create("root", "0")]);
+        var result = ini.Append([KeyValuePair.Create((Key)"beta:y", "2"), KeyValuePair.Create((Key)"root", "0")]);
 
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-        Assert.Equal([":root", "alpha:x", "beta:y"], result.ResultValue.Keys);
+        Assert.Equal([":root", "alpha:x", "beta:y"], result.Keys);
         Assert.Equal(["alpha:x"], ini.Keys);
     }
 
@@ -731,22 +669,20 @@ public class IniTests
     {
         var ini = Create("[alpha]", "x = 1");
 
-        var result = ini.Append([KeyValuePair.Create("ALPHA:X", "2")]);
+        var result = ini.Append([KeyValuePair.Create((Key)"ALPHA:X", "2")]);
 
-        Assert.True(result.IsOk);
-        Assert.Equal(1, result.ResultValue.Count);
-        Assert.True(result.ResultValue.TryFind("alpha:x") is { Value: "2" });
+        Assert.Equal(1, result.Count);
+        Assert.True(result.TryFind("alpha:x") is { Value: "2" });
         Assert.True(ini.TryFind("alpha:x") is { Value: "1" });
     }
 
     [Fact]
     public void AppendLetsALaterPairOverwriteAnEarlierOne()
     {
-        var result = Ini.Empty.Append([KeyValuePair.Create("x", "1"), KeyValuePair.Create("X", "2")]);
+        var result = Ini.Empty.Append([KeyValuePair.Create((Key)"x", "1"), KeyValuePair.Create((Key)"X", "2")]);
 
-        Assert.True(result.IsOk);
-        Assert.Equal(1, result.ResultValue.Count);
-        Assert.True(result.ResultValue.TryFind("x") is { Value: "2" });
+        Assert.Equal(1, result.Count);
+        Assert.True(result.TryFind("x") is { Value: "2" });
     }
 
     [Fact]
@@ -756,8 +692,7 @@ public class IniTests
 
         var result = Ini.Empty.Append(ini);
 
-        Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-        Assert.Equal(ini, result.ResultValue);
+        Assert.Equal(ini, result);
     }
 
     [Fact]
@@ -767,46 +702,21 @@ public class IniTests
 
         var result = ini.Append([]);
 
-        Assert.True(result.IsOk);
-        Assert.Equal(ini, result.ResultValue);
+        Assert.Equal(ini, result);
     }
 
     [Fact]
     public void AppendToAnEmptyIniIsCreate()
     {
-        KeyValuePair<string, string>[] pairs = [KeyValuePair.Create("root", "0"), KeyValuePair.Create("alpha:x", "1")];
+        KeyValuePair<Key, string>[] pairs = [KeyValuePair.Create((Key)"root", "0"), KeyValuePair.Create((Key)"alpha:x", "1")];
 
-        Assert.Equal(Ini.Create(pairs).ResultValue, Ini.Empty.Append(pairs).ResultValue);
-    }
-
-    [Fact]
-    public void AppendRejectsAnInvalidKey()
-    {
-        var ini = Create("x = 1");
-
-        var result = ini.Append([KeyValuePair.Create("y", "2"), KeyValuePair.Create("a b", "3")]);
-
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidKey("a b"), result.ErrorValue);
-        Assert.Equal([":x"], ini.Keys);
+        Assert.Equal(Ini.Create(pairs), Ini.Empty.Append(pairs));
     }
 
     [Fact]
     public void AppendRejectsNullPairs()
     {
         Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append(null!));
-    }
-
-    [Fact]
-    public void AppendRejectsAPairWithANullKey()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append([KeyValuePair.Create((string)null!, "1")]));
-    }
-
-    [Fact]
-    public void AppendRejectsAPairWithANullValue()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append([KeyValuePair.Create("x", (string)null!)]));
     }
 
     // ------------------------------------------------------------ files
@@ -960,7 +870,7 @@ public class IniTests
         var result = Ini.FromLines(["oops"]);
 
         Assert.True(result.ErrorValue.IsInvalidLine);
-        Assert.False(result.ErrorValue.IsInvalidKey);
+        Assert.False(result.ErrorValue.IsInvalidName);
         Assert.Equal(ParserError.NewInvalidLine("oops"), result.ErrorValue);
     }
 
@@ -973,28 +883,9 @@ public class IniTests
     }
 
     [Fact]
-    public void AnInvalidKeyIsReportedAsInvalidKey()
-    {
-        var add = Ini.Empty.Add("a b", "1");
-        var create = Ini.Create([new KeyValuePair<string, string>("a b", "1")]);
-
-        Assert.True(add.ErrorValue.IsInvalidKey);
-        Assert.Equal(ParserError.NewInvalidKey("a b"), add.ErrorValue);
-        Assert.Equal(ParserError.NewInvalidKey("a b"), create.ErrorValue);
-    }
-
-    [Fact]
-    public void InvalidKeyCarriesTheKeyVerbatim()
-    {
-        var result = Ini.Empty.Add(" x ", "1");
-
-        Assert.True(result.ErrorValue is ParserError.InvalidKey { Key: " x " });
-    }
-
-    [Fact]
     public void TheTwoCasesAreDistinctForTheSameText()
     {
-        Assert.NotEqual(ParserError.NewInvalidKey("oops"), ParserError.NewInvalidLine("oops"));
+        Assert.NotEqual(ParserError.NewInvalidName("oops"), ParserError.NewInvalidLine("oops"));
     }
 
     [Fact]
@@ -1012,7 +903,7 @@ public class IniTests
         var message = Ini.FromLines(["oops"]).ErrorValue switch
         {
             ParserError.InvalidLine { Line: var line } => $"line: {line}",
-            ParserError.InvalidKey { Key: var key } => $"key: {key}",
+            ParserError.InvalidName { Name: var name } => $"name: {name}",
             _ => "unknown"
         };
 
@@ -1023,6 +914,6 @@ public class IniTests
     public void AParserErrorNamesItsCaseAndItsText()
     {
         Assert.Equal("InvalidLine \"oops\"", ParserError.NewInvalidLine("oops").ToString());
-        Assert.Equal("InvalidKey \"a b\"", ParserError.NewInvalidKey("a b").ToString());
+        Assert.Equal("InvalidName \"a b\"", ParserError.NewInvalidName("a b").ToString());
     }
 }
