@@ -9,13 +9,15 @@ open System.Text.RegularExpressions
 
 [<AutoOpen>]
 module Operators =
-    let inline (<!>) arg func = Result.map func arg
+    let inline (>>=) m f = Result.bind f m
 
-    let inline (<?>) arg func = Option.map func arg
+    let inline (<!>) m f = Result.map f m
+
+    let inline (<?>) m f = Option.map f m
 
 [<AutoOpen>]
 module FuncConvert =
-    let inline fromFunc (parser: Func<'T, 'U>) = FuncConvert.FromFunc parser
+    let inline fromFunc (f: Func<'T, 'U>) = FuncConvert.FromFunc f
 
 [<AutoOpen>]
 module KeyValuePair =
@@ -38,6 +40,10 @@ module String =
     [<Literal>]
     let Empty = ""
 
+    let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
+
+    let inline split (c: char) (s: string) = s.Split c
+
 [<AutoOpen>]
 module File =
     let inline readLines path = File.ReadLines path
@@ -46,17 +52,15 @@ module File =
 
 [<AutoOpen>]
 module Parser =
-    let whitespaceLineRegex = Regex(@"^\s*$", RegexOptions.Compiled)
+    let whitespaceLineRegex = Regex(@"^\s*\z", RegexOptions.Compiled)
 
-    let commentLineRegex = Regex(@"^\s*[;#]\s*(.*?)\s*$", RegexOptions.Compiled)
+    let commentLineRegex = Regex(@"^\s*[;#]\s*(.*?)\s*\z", RegexOptions.Compiled)
 
-    let sectionLineRegex = Regex(@"^\s*\[\s*([^=:;#\s\[\]]+)\s*\]\s*$", RegexOptions.Compiled)
+    let sectionLineRegex = Regex(@"^\s*\[\s*([^=:;#\s\[\]]+)\s*\]\s*\z", RegexOptions.Compiled)
 
-    let parameterLineRegex = Regex(@"^\s*([^=:;#\s\[\]]+)\s*=\s*(.*?)\s*$", RegexOptions.Compiled)
+    let parameterLineRegex = Regex(@"^\s*([^=:;#\s\[\]]+)\s*=\s*(.*?)\s*\z", RegexOptions.Compiled)
 
-    let nameRegex = Regex(@"^([^=:;#\s\[\]]+)$", RegexOptions.Compiled)
-
-    let keyRegex = Regex(@"^([^=:;#\s\[\]]*):([^=:;#\s\[\]]+)$", RegexOptions.Compiled)
+    let nameRegex = Regex(@"^([^=:;#\s\[\]]+)\z", RegexOptions.Compiled)
 
     let inline (|ParseRegex|_|) (regex: Regex) input =
         match regex.Match(input) with
@@ -65,13 +69,13 @@ module Parser =
 
 type Section = { Name: string }
 
-type Parameter = { Key: string; Value: string }
+type ParameterLine = { Key: string; Value: string }
 
 type Line =
     | Whitespace
     | Comment
     | Section of Section: Section
-    | Parameter of Parameter: Parameter
+    | Parameter of Parameter: ParameterLine
 
 type ParserError =
     | InvalidName of Name: string
@@ -84,6 +88,26 @@ type Name =
         { Name: string }
 
     static let comparer = StringComparer.OrdinalIgnoreCase
+
+    static let empty = { Name = Empty }
+
+    static member Empty = empty
+
+    static member TryGet name =
+        match name with
+        | Empty -> empty |> Ok
+        | ParseRegex nameRegex [ name ] -> { Name = name } |> Ok
+        | _ -> InvalidName name |> Error
+
+    static member Get name =
+        match name with
+        | Empty -> empty
+        | ParseRegex nameRegex [ name ] -> { Name = name }
+        | _ -> invalidArg (nameof name) name
+
+    static member op_Implicit name = Name.Get name
+
+    static member op_Implicit(name: Name) = name.ToString()
 
     member s.CompareTo other =
         match s.Name, other.Name with
@@ -109,36 +133,48 @@ type Name =
 
 [<RequireQualifiedAccess>]
 module Name =
-    let empty = { Name = Empty }
+    let empty = Name.Empty
 
-    let tryParse name =
-        match name with
-        | Empty -> empty |> Ok
-        | ParseRegex nameRegex [ name ] -> { Name = name } |> Ok
-        | _ -> InvalidName name |> Error
+    let tryGet name = Name.TryGet name
 
-    let parse name =
-        match name with
-        | Empty -> empty
-        | ParseRegex nameRegex [ name ] -> { Name = name }
-        | _ -> invalidArg (nameof name) name
-
-type Name with
-    static member Empty = Name.empty
-
-    static member TryParse name = Name.tryParse name
-
-    static member Parse name = Name.parse name
-
-    static member op_Implicit name = Name.parse name
-
-    static member op_Implicit(section: Name) = section.ToString()
+    let get name = Name.Get name
 
 [<CustomComparison; CustomEquality>]
 type Key =
     private
         { Section: Name
           Parameter: Name }
+
+    static let create section parameter = { Section = section; Parameter = parameter }
+
+    static member TryGet(sectionName, parameterName) =
+        if parameterName = Empty then
+            InvalidName parameterName |> Error
+        else
+            Name.TryGet sectionName
+            >>= (fun section -> Name.TryGet parameterName >>= (fun parameter -> create section parameter |> Ok))
+
+    static member Get(sectionName, parameterName) =
+        if parameterName = Empty then
+            invalidArg (nameof parameterName) parameterName
+        else
+            create (Name.Get sectionName) (Name.Get parameterName)
+
+    static member TryParse key =
+        match split ':' key with
+        | [| parameterName |] -> Key.TryGet(Name.Empty, parameterName)
+        | [| sectionName; parameterName |] -> Key.TryGet(sectionName, parameterName)
+        | _ -> InvalidName key |> Error
+
+    static member Parse key =
+        match split ':' key with
+        | [| parameterName |] -> Key.Get(Name.Empty, parameterName)
+        | [| sectionName; parameterName |] -> Key.Get(sectionName, parameterName)
+        | _ -> invalidArg (nameof key) key
+
+    static member op_Implicit key = Key.Parse key
+
+    static member op_Implicit(key: Key) = key.ToString()
 
     member k.CompareTo other =
         match k.Section.CompareTo other.Section with
@@ -165,41 +201,16 @@ type Key =
 
 [<RequireQualifiedAccess>]
 module Key =
-    let tryParse key =
-        match key with
-        | ParseRegex nameRegex [ parameter ] ->
-            Ok
-                { Section = { Name = Empty }
-                  Parameter = { Name = parameter } }
-        | ParseRegex keyRegex [ section; parameter ] ->
-            Ok
-                { Section = { Name = section }
-                  Parameter = { Name = parameter } }
-        | _ -> InvalidName key |> Error
+    let tryGet sectionName parameterName = Key.TryGet(sectionName, parameterName)
 
-    let parse key =
-        match key with
-        | ParseRegex nameRegex [ parameter ] ->
-            { Section = { Name = Empty }
-              Parameter = { Name = parameter } }
-        | ParseRegex keyRegex [ section; parameter ] ->
-            { Section = { Name = section }
-              Parameter = { Name = parameter } }
-        | _ -> invalidArg (nameof key) key
+    let get sectionName parameterName = Key.Get(sectionName, parameterName)
 
-type Key with
-    static member TryParse name = Key.tryParse name
+    let tryParse key = Key.TryParse key
 
-    static member Parse name = Key.parse name
-
-    static member op_Implicit name = Key.parse name
-
-    static member op_Implicit(key: Key) = key.ToString()
+    let parse key = Key.Parse key
 
 [<RequireQualifiedAccess>]
 module Map =
-    let inline lastIndexOf (c: char) (s: string) = s.LastIndexOf c
-
     let inline (|ParseWhitespace|_|) text =
         match text with
         | ParseRegex whitespaceLineRegex _ -> ValueSome Whitespace
@@ -253,7 +264,7 @@ module Map =
                 map
             else
                 let key, value = current enumerator
-                Map.add key value map |> loop
+                loop (Map.add key value map)
 
         loop map
 
@@ -272,7 +283,7 @@ module Map =
                     | Comment -> loop section map
                     | Section { Name = name } -> loop name map
                     | Parameter { Key = key; Value = value } ->
-                        Map.add { Section = { Name = section }; Parameter = { Name = key } } value map |> loop section
+                        loop section (Map.add { Section = { Name = section }; Parameter = { Name = key } } value map)
 
         loop Empty map
 
@@ -288,11 +299,11 @@ module Map =
 
     let tryFindNested key map =
         let rec loop section =
-            match Map.tryFind { Section = section; Parameter = key.Parameter } map with
+            match Map.tryFind { key with Section = section } map with
             | Some value -> Some value
             | None ->
-                match section.Name with
-                | Empty -> None
+                match section with
+                | { Name = Empty } -> None
                 | _ ->
                     match lastIndexOf '.' section.Name with
                     | -1 -> loop { Name = Empty }
@@ -336,7 +347,7 @@ module Map =
     let sections map = map |> Seq.map key |> Seq.map _.Section |> Seq.distinct
 
     let sectionWith sign (section: Name) map =
-        map |> Map.filter (fun key _ -> section |> key.Section.Equals |> sign)
+        Map.filter (fun key _ -> key.Section.Equals section |> sign) map
 
     let section = sectionWith id
 
@@ -375,15 +386,15 @@ type Ini =
     private
         { Map: Map<Key, string> }
 
-    member m.KeyValuePairs = m.Map :> KeyValuePair<Key, string> seq
+    member ini.KeyValuePairs = ini.Map :> KeyValuePair<Key, string> seq
 
     interface IEnumerable<KeyValuePair<Key, string>> with
-        member m.GetEnumerator() = m.KeyValuePairs.GetEnumerator()
+        member ini.GetEnumerator() = ini.KeyValuePairs.GetEnumerator()
 
     interface IEnumerable with
-        member m.GetEnumerator() = (m.KeyValuePairs :> IEnumerable).GetEnumerator()
+        member ini.GetEnumerator() = (ini.KeyValuePairs :> IEnumerable).GetEnumerator()
 
-    override m.ToString() = Map.toString m.Map
+    override ini.ToString() = ini.Map |> Map.toString
 
 [<RequireQualifiedAccess>]
 module Ini =
@@ -466,76 +477,70 @@ module Ini =
 type Ini with
     static member Empty = Ini.empty
 
-    static member Create pairs = pairs |> Seq.map deconstruct |> Ini.ofSeq
+    static member Create pairs = Ini.ofSeq (Seq.map deconstruct pairs)
 
-    static member FromLines lines = lines |> Ini.fromLines
+    static member FromLines lines = Ini.fromLines lines
 
-    static member FromFile path = path |> Ini.fromFile
+    static member FromFile path = Ini.fromFile path
 
-    member m.Append pairs = Ini.append (pairs |> Seq.map deconstruct) m
+    member ini.Append pairs = Ini.append (Seq.map deconstruct pairs) ini
 
-    member m.AppendLines lines = Ini.appendLines lines m
+    member ini.AppendLines lines = Ini.appendLines lines ini
 
-    member m.AppendFile path = Ini.appendFile path m
+    member ini.AppendFile path = Ini.appendFile path ini
 
-    member m.IsEmpty = Ini.isEmpty m
+    member ini.IsEmpty = Ini.isEmpty ini
 
-    member m.Add(key, value) = Ini.add key value m
+    member ini.Add(key, value) = Ini.add key value ini
 
-    member m.TryFind key = Ini.tryFind key m
-
-#if NET
-    member m.TryFindAs key = Ini.tryFindAs key m
-#endif
-
-    member m.TryFindWith(parser, key) = Ini.tryFindWith (fromFunc parser) key m
-
-    member m.TryFindNested key = Ini.tryFindNested key m
+    member ini.TryFind key = Ini.tryFind key ini
 
 #if NET
-    member m.TryFindNestedAs key = Ini.tryFindNestedAs key m
+    member ini.TryFindAs key = Ini.tryFindAs key ini
 #endif
 
-    member m.TryFindNestedWith(parser, key) = Ini.tryFindNestedWith (fromFunc parser) key m
+    member ini.TryFindWith(parser, key) = Ini.tryFindWith (fromFunc parser) key ini
 
-    member m.Find key = Ini.find key m
+    member ini.TryFindNested key = Ini.tryFindNested key ini
 
 #if NET
-    member m.FindAs key = Ini.findAs key m
+    member ini.TryFindNestedAs key = Ini.tryFindNestedAs key ini
 #endif
 
-    member m.FindWith(parser, key) = Ini.findWith (fromFunc parser) key m
+    member ini.TryFindNestedWith(parser, key) = Ini.tryFindNestedWith (fromFunc parser) key ini
 
-    member m.FindNested key = Ini.findNested key m
+    member ini.Find key = Ini.find key ini
 
 #if NET
-    member m.FindNestedAs key = Ini.findNestedAs key m
+    member ini.FindAs key = Ini.findAs key ini
 #endif
 
-    member m.FindNestedWith(parser, key) = Ini.findNestedWith (fromFunc parser) key m
+    member ini.FindWith(parser, key) = Ini.findWith (fromFunc parser) key ini
 
-    member m.Remove key = Ini.remove key m
+    member ini.FindNested key = Ini.findNested key ini
 
-    member m.Count = Ini.count m
+#if NET
+    member ini.FindNestedAs key = Ini.findNestedAs key ini
+#endif
 
-    member m.ContainsKey key = Ini.containsKey key m
+    member ini.FindNestedWith(parser, key) = Ini.findNestedWith (fromFunc parser) key ini
 
-    member m.Keys = Ini.keys m
+    member ini.Remove key = Ini.remove key ini
 
-    member m.Values = Ini.values m
+    member ini.Count = Ini.count ini
 
-    member m.Sections = Ini.sections m
+    member ini.ContainsKey key = Ini.containsKey key ini
 
-    member m.Section name = Ini.section name m
+    member ini.Keys = Ini.keys ini
 
-    member m.RemoveSection name = Ini.removeSection name m
+    member ini.Values = Ini.values ini
 
-    member m.ToLines() = Ini.toLines m
+    member ini.Sections = Ini.sections ini
 
-    member m.ToFile path = Ini.toFile path m
+    member ini.Section name = Ini.section name ini
 
-[<AutoOpen>]
-module Casting =
-    let inline name name = Name.parse name
+    member ini.RemoveSection name = Ini.removeSection name ini
 
-    let inline key key = Key.parse key
+    member ini.ToLines() = Ini.toLines ini
+
+    member ini.ToFile path = Ini.toFile path ini

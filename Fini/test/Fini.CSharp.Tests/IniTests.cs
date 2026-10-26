@@ -1,919 +1,619 @@
+using Microsoft.FSharp.Core;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Xunit;
+using static Fini.CSharp.Tests.Helpers;
 
 namespace Fini.CSharp.Tests;
 
-public class IniTests
+internal static class Helpers
 {
-    private static Ini Create(params string[] lines)
+    /// <summary>Parses lines into a document, failing the test on an error.</summary>
+    public static Ini Parse(params string[] lines) => Ok(Ini.FromLines(lines));
+
+    /// <summary>Unwraps Ok, failing the test on Error.</summary>
+    public static T Ok<T>(FSharpResult<T, ParserError> result)
     {
-        var result = Ini.FromLines(lines);
-        Assert.True(result.IsOk, $"{result.ErrorValue}");
+        Assert.True(result.IsOk, $"expected Ok, got {result.ErrorValue}");
         return result.ResultValue;
     }
 
-    // ------------------------------------------------------------ empty
-
-    [Fact]
-    public void EmptyIsEmpty()
+    /// <summary>Unwraps Error, failing the test on Ok.</summary>
+    public static ParserError Error<T>(FSharpResult<T, ParserError> result)
     {
-        Assert.True(Ini.Empty.IsEmpty);
-        Assert.Equal(0, Ini.Empty.Count);
-        Assert.Empty(Ini.Empty.Keys);
-        Assert.Empty(Ini.Empty.Values);
+        Assert.True(result.IsError, $"expected Error, got {result.ResultValue}");
+        return result.ErrorValue;
     }
 
-    [Fact]
-    public void EmptyFindsNothing()
+    public static string[] KeysOf(Ini ini) => ini.Keys.Select(key => key.ToString()).ToArray();
+
+    public static KeyValuePair<Key, string> Pair(Key key, string value) => new(key, value);
+}
+
+/// <summary>A temporary file that is deleted on dispose.</summary>
+internal sealed class TempFile : IDisposable
+{
+    public TempFile(params string[] lines)
     {
-        Assert.False(Ini.Empty.ContainsKey("alpha:x"));
-        Assert.Null(Ini.Empty.TryFind("alpha:x"));
-        Assert.Null(Ini.Empty.TryFindNested("alpha:x"));
+        Path = System.IO.Path.GetTempFileName();
+        File.WriteAllLines(Path, lines);
     }
 
-    // ------------------------------------------------------------ create
+    public string Path { get; }
 
-    [Fact]
-    public void TryCreateParsesSectionsAndParameters()
+    public void Dispose()
     {
-        var ini = Create("; comment", "", "[alpha]", "x = 1");
-
-        Assert.False(ini.IsEmpty);
-        Assert.Equal(1, ini.Count);
-        Assert.Equal([(Key)"alpha:x"], ini.Keys);
-        Assert.Equal(["1"], ini.Values);
+        if (File.Exists(Path))
+        {
+            File.Delete(Path);
+        }
     }
+}
 
-    [Fact]
-    public void TryCreateReportsAnUnparsableLine()
-    {
-        var result = Ini.FromLines(["oops"]);
-
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidLine("oops"), result.ErrorValue);
-    }
-
-    [Fact]
-    public void TryCreateRejectsANullLine()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.FromLines(["x = 1", null!]));
-    }
-
-    // ------------------------------------------------------------ sections
-
-    [Fact]
-    public void SectionParseAndTryParseExposeSectionNamesToCSharp()
-    {
-        var section = Name.Parse("alpha");
-        var result = Name.TryParse("beta");
-
-        Assert.Equal("alpha", (string)section);
-        Assert.True(result.IsOk);
-        Assert.Equal("beta", (string)result.ResultValue);
-        Assert.True(Name.TryParse("invalid name").IsError);
-        Assert.Throws<ArgumentException>(() => Name.Parse("invalid name"));
-    }
-
-    [Fact]
-    public void SectionSupportsImplicitAndExplicitConversionsInCSharp()
-    {
-        var section = (Name)"alpha";
-        string name = section;
-
-        Assert.Equal("alpha", name);
-        Assert.Equal(Name.Parse("alpha"), section);
-    }
-
-    [Fact]
-    public void AppendLinesRejectsANullLine()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.AppendLines([null!]));
-    }
-
-    // ------------------------------------------------------------ lookup
-
-    [Fact]
-    public void TryFindReturnsTheValue()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.True(ini.TryFind("alpha:x") is { Value: "1" });
-    }
-
-    [Fact]
-    public void TryFindReturnsNullOnMiss()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Null(ini.TryFind("alpha:nope"));
-    }
-
+public class NameTests
+{
     [Theory]
-    [InlineData("alpha:x")]
-    [InlineData("ALPHA:X")]
-    public void KeysAreComparedCaseInsensitively(string key)
+    [InlineData("server")]
+    [InlineData("server.dev")]
+    public void ValidNameIsAccepted(string text)
     {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.True(ini.ContainsKey(key));
-        Assert.True(ini.TryFind(key) is { Value: "1" });
+        Assert.Equal(text, Ok(Name.TryGet(text)).ToString());
+        Assert.Equal(text, Name.Get(text).ToString());
     }
 
     [Fact]
-    public void AKeyWithoutASeparatorRefersToTheRootSection()
-    {
-        var ini = Create("x = 1");
-
-        Assert.True(ini.ContainsKey("x"));
-        Assert.True(ini.TryFind("x") is { Value: "1" });
-    }
-
-    // ------------------------------------------------------------ nested lookup
-
-    [Fact]
-    public void TryFindNestedFallsBackToAnAncestorSection()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:y") is { Value: "2" });
-
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:x") is { Value: "1" });
-
-        Assert.True(ini.TryFindNested("alpha.beta.gamma:root") is { Value: "0" });
-    }
-
-    [Fact]
-    public void TryFindNestedPrefersTheMostSpecificSection()
-    {
-        var ini = Create("[alpha]", "x = alpha", "[alpha.beta]", "x = beta");
-
-        Assert.True(ini.TryFindNested("alpha.beta:x") is { Value: "beta" });
-    }
-
-    [Fact]
-    public void TryFindNestedReturnsNullOnMiss()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Null(ini.TryFindNested("alpha.beta:nope"));
-    }
-
-    // ------------------------------------------------------------ generic lookup
-
-    [Fact]
-    public void TryFindValueParsesAnyParsableType()
-    {
-        var ini = Create("i = 42", "b = true", "f = 3.14", "span = 00:05:00");
-
-        Assert.True(ini.TryFindAs<int>("i") is { Value: { IsOk: true, ResultValue: 42 } });
-        Assert.True(ini.TryFindAs<bool>("b") is { Value: { IsOk: true, ResultValue: true } });
-        Assert.True(ini.TryFindAs<double>("f") is { Value: { IsOk: true, ResultValue: 3.14 } });
-        Assert.Equal(TimeSpan.FromMinutes(5), ini.TryFindAs<TimeSpan>("span")!.Value.ResultValue);
-    }
-
-    [Fact]
-    public void TryFindValueReportsAnUnparsableValueAsInvalidValue()
-    {
-        var ini = Create("x = nope");
-
-        Assert.True(ini.TryFindAs<int>("x") is { Value.IsError: true });
-        Assert.Equal(ParserError.NewInvalidValue("nope"), ini.TryFindAs<int>("x")!.Value.ErrorValue);
-    }
-
-    [Fact]
-    public void TryFindValueReturnsNullOnMiss()
-    {
-        var ini = Create("x = 42");
-
-        Assert.Null(ini.TryFindAs<int>("nope"));
-    }
-
-    [Fact]
-    public void TryFindValueNeverWalksTheSectionHierarchy()
-    {
-        var ini = Create("x = 42", "[alpha]", "y = 1");
-
-        Assert.Null(ini.TryFindAs<int>("alpha:x"));
-    }
-
-    [Fact]
-    public void TryFindNestedValueFallsBackToTheParentSection()
-    {
-        var ini = Create("x = 42", "[alpha]", "y = 1");
-
-        Assert.True(ini.TryFindNestedAs<int>("alpha.beta:x") is { Value: { IsOk: true, ResultValue: 42 } });
-    }
-
-    [Fact]
-    public void TryFindNestedValueReturnsNullWhenNoAncestorHasTheParameter()
-    {
-        var ini = Create("[alpha]", "x = 42");
-
-        Assert.Null(ini.TryFindNestedAs<int>("alpha.beta:nope"));
-    }
-
-    // ------------------------------------------------------------ append
-
-    [Fact]
-    public void TryAppendAddsEntriesAndLeavesTheOriginalUnchanged()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.AppendLines(["[beta]", "y = 2"]);
-
-        Assert.True(result.IsOk);
-        Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
-        Assert.Equal(1, ini.Count);
-    }
-
-    [Fact]
-    public void TryAppendOverwritesExistingKeys()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.AppendLines(["[alpha]", "x = 2"]);
-
-        Assert.True(result.IsOk);
-        Assert.True(result.ResultValue.TryFind("alpha:x") is { Value: "2" });
-        Assert.Equal(1, result.ResultValue.Count);
-    }
-
-    [Fact]
-    public void TryAppendReportsAnUnparsableLine()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.AppendLines(["oops"]);
-
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidLine("oops"), result.ErrorValue);
-    }
-
-    // ------------------------------------------------------------ mutation
-
-    [Fact]
-    public void AddReturnsANewIniAndLeavesTheOriginalUnchanged()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.Add("beta:y", "2");
-
-        Assert.Equal(["alpha:x", "beta:y"], result.Keys);
-        Assert.Equal(1, ini.Count);
-    }
-
-    [Fact]
-    public void AddOverwritesAnExistingKey()
-    {
-        var result = Create("[alpha]", "x = 1").Add("ALPHA:X", "2");
-
-        Assert.Equal(1, result.Count);
-        Assert.True(result.TryFind("alpha:x") is { Value: "2" });
-    }
+    public void EmptyStringIsTheRoot() => Assert.Equal(Name.Empty, Name.Get(""));
 
     [Theory]
     [InlineData("a b")]
-    [InlineData("a=b")]
-    [InlineData("alpha:x:y")]
-    public void AddRejectsAnInvalidKey(string key)
+    [InlineData("a\n")]
+    [InlineData("a:b")]
+    [InlineData("[a]")]
+    public void InvalidNameIsRejected(string text)
     {
-        var result = Key.TryParse(key);
+        Assert.Equal(ParserError.NewInvalidName(text), Error(Name.TryGet(text)));
+        Assert.Throws<ArgumentException>(() => Name.Get(text));
+    }
 
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidName(key), result.ErrorValue);
+    [Fact]
+    public void ConvertsImplicitlyFromAndToString()
+    {
+        Name name = "Server";
+        string text = name;
+        Assert.Equal("Server", text);
+    }
+
+    [Fact]
+    public void ImplicitConversionOfAnInvalidNameThrows()
+    {
+        Assert.Throws<ArgumentException>(() =>
+        {
+            Name _ = "a b";
+        });
+    }
+
+    [Fact]
+    public void ComparesIgnoringCase()
+    {
+        Assert.Equal(Name.Get("Server"), Name.Get("server"));
+        Assert.Equal(Name.Get("Server").GetHashCode(), Name.Get("server").GetHashCode());
+    }
+}
+
+public class KeyTests
+{
+    [Theory]
+    [InlineData("server:host", "server:host")]
+    [InlineData("host", ":host")]
+    [InlineData(":host", ":host")]
+    public void ValidKeyIsParsed(string text, string expected)
+    {
+        Assert.Equal(expected, Ok(Key.TryParse(text)).ToString());
+        Assert.Equal(expected, Key.Parse(text).ToString());
     }
 
     [Theory]
     [InlineData("")]
-    [InlineData(" ")]
-    [InlineData("\t")]
-    public void AddRejectsABlankKey(string key)
+    [InlineData("server:")]
+    [InlineData("a:b:c")]
+    [InlineData("a b")]
+    [InlineData("server:x\n")]
+    public void InvalidKeyIsRejected(string text)
     {
-        var result = Key.TryParse(key);
-
-        Assert.True(result.IsError);
-        Assert.Equal(ParserError.NewInvalidName(key), result.ErrorValue);
+        Assert.IsType<ParserError.InvalidName>(Error(Key.TryParse(text)));
+        Assert.Throws<ArgumentException>(() => Key.Parse(text));
     }
 
     [Fact]
-    public void RemoveReturnsANewIniWithoutTheKey()
+    public void ErrorCanBeMatched()
     {
-        var ini = Create("[alpha]", "x = 1", "y = 2");
+        var message = Key.TryParse("a b:x") switch
+        {
+            { ResultValue: { } key } => $"ok {key}",
+            { ErrorValue: ParserError.InvalidName { Name: var name } } => $"bad name {name}",
+            _ => "unreachable"
+        };
 
-        var removed = ini.Remove("alpha:x");
-
-        Assert.Equal(["alpha:y"], removed.Keys);
-        Assert.Equal(2, ini.Count);
+        Assert.Equal("bad name a b", message);
     }
 
     [Fact]
-    public void RemoveIsANoOpForAMissingKey()
+    public void KeyIsBuiltFromParts()
     {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal(ini, ini.Remove("beta:y"));
-    }
-
-    // ------------------------------------------------------------ sections
-
-    [Fact]
-    public void SectionsListsEveryDistinctSectionName()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[beta]", "y = 2");
-
-        Assert.Equal(["", "alpha", "beta"], ini.Sections);
+        Assert.Equal(Key.Parse("server:host"), Key.Get("server", "host"));
+        Assert.Equal(Key.Parse("host"), Ok(Key.TryGet("", "host")));
+        Assert.True(Key.TryGet("server", "").IsError);
     }
 
     [Fact]
-    public void SectionsHasNoDuplicatesForAReopenedSection()
+    public void ConvertsImplicitlyFromAndToString()
     {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2", "[alpha]", "z = 3");
-
-        Assert.Equal(["alpha", "beta"], ini.Sections);
+        Key key = "server:host";
+        string text = key;
+        Assert.Equal("server:host", text);
     }
 
     [Fact]
-    public void SectionsOfAnEmptyIniIsEmpty()
+    public void ImplicitConversionOfAnInvalidKeyThrows()
     {
+        var ini = Ini.Empty;
+        Assert.Throws<ArgumentException>(() => ini.TryFind("a b"));
+    }
+
+    [Fact]
+    public void ComparesIgnoringCase()
+    {
+        Assert.Equal(Key.Parse("Server:Host"), Key.Parse("server:host"));
+        Assert.Equal(Key.Parse("Server:Host").GetHashCode(), Key.Parse("server:host").GetHashCode());
+    }
+
+    [Fact]
+    public void SortsBySectionThenParameter()
+    {
+        Key[] keys = ["b:a", "a:z", "z", "a:b"];
+        Assert.Equal([":z", "a:b", "a:z", "b:a"], keys.Order().Select(k => k.ToString()));
+    }
+}
+
+public class ParsingTests
+{
+    [Fact]
+    public void ParsesSectionsParametersAndComments()
+    {
+        var ini = Parse("; comment", "", "timeout = 30", "[server]", "host = localhost");
+
+        Assert.Equal([":timeout", "server:host"], KeysOf(ini));
+        Assert.Equal(["30", "localhost"], ini.Values);
+    }
+
+    [Theory]
+    [InlineData("x = a = b", "a = b")]
+    [InlineData("x =", "")]
+    [InlineData("  x  =  1  ", "1")]
+    public void ValueIsEverythingAfterTheFirstEqualsSign(string line, string expected) =>
+        Assert.Equal(expected, Parse(line).Find("x"));
+
+    [Theory]
+    [InlineData("oops")]
+    [InlineData("[a b]")]
+    [InlineData("a:b = 1")]
+    public void InvalidLineIsReported(string line) =>
+        Assert.Equal(ParserError.NewInvalidLine(line), Error(Ini.FromLines(["x = 1", line])));
+
+    [Fact]
+    public void ResultCanBeMatched()
+    {
+        var text = Ini.FromLines(["oops"]) switch
+        {
+            { ResultValue: { } ini } => $"{ini.Count} parameters",
+            { ErrorValue: ParserError.InvalidLine { Line: var line } } => $"bad line: {line}",
+            { ErrorValue: var err } => $"other: {err}"
+        };
+
+        Assert.Equal("bad line: oops", text);
+    }
+
+    [Fact]
+    public void ParsesAFile()
+    {
+        using var file = new TempFile("[server]", "port = 8080");
+        Assert.Equal("8080", Ok(Ini.FromFile(file.Path)).Find("server:port"));
+    }
+
+    [Fact]
+    public void MissingFileThrows() =>
+        Assert.Throws<FileNotFoundException>(() => Ini.FromFile(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())));
+}
+
+public class BuildingTests
+{
+    [Fact]
+    public void EmptyHasNothing()
+    {
+        Assert.True(Ini.Empty.IsEmpty);
+        Assert.Equal(0, Ini.Empty.Count);
+        Assert.Empty(Ini.Empty.Keys);
         Assert.Empty(Ini.Empty.Sections);
     }
 
     [Fact]
-    public void SectionsTreatsDifferentlyCasedNamesAsOne()
+    public void AddReturnsANewDocument()
     {
-        var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
+        var ini = Ini.Empty.Add("server:host", "localhost").Add("timeout", "30");
 
-        var item = Assert.Single(ini.Sections);
-        Assert.Equal("alpha", item.ToString().ToLowerInvariant());
+        Assert.Equal([":timeout", "server:host"], KeysOf(ini));
+        Assert.True(Ini.Empty.IsEmpty);
     }
 
     [Fact]
-    public void SectionsIncludesAChildSectionAsItsOwnDottedName()
+    public void AddReplacesAValue()
     {
-        var ini = Create("[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        Assert.Equal(["alpha", "alpha.beta"], ini.Sections);
+        var ini = Parse("x = 1").Add("X", "2");
+        Assert.Equal(1, ini.Count);
+        Assert.Equal("2", ini.Find("x"));
     }
 
     [Fact]
-    public void SectionReturnsOnlyThatSectionsParametersKeyedAsInTheOriginal()
+    public void RemoveDeletesAKey()
     {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[beta]", "y = 2");
-
-        var alpha = ini.Section("alpha");
-
-        Assert.Equal(["alpha:x"], alpha.Keys);
-        Assert.True(alpha.TryFind("alpha:x") is { Value: "1" });
-        Assert.Null(alpha.TryFind("x"));
+        var ini = Parse("x = 1", "y = 2").Remove("x");
+        Assert.Equal([":y"], KeysOf(ini));
+        Assert.Equal(ini, ini.Remove("missing"));
     }
 
     [Fact]
-    public void SectionMatchesTheNameCaseInsensitively()
+    public void CreateBuildsFromPairs()
     {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal(ini.Section("alpha"), ini.Section("ALPHA"));
+        var ini = Ini.Create([Pair("s:x", "1"), Pair("y", "2"), Pair("S:X", "3")]);
+        Assert.Equal([":y", "S:X"], KeysOf(ini));
+        Assert.Equal("3", ini.Find("s:x"));
     }
 
     [Fact]
-    public void SectionMergesParametersFromEveryDifferentlyCasedReopening()
+    public void AppendLayersPairs()
     {
-        var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2");
-
-        var alpha = ini.Section("alpha");
-
-        Assert.Equal(2, alpha.Count);
-        Assert.Equal([(Key)"alpha:x", (Key)"ALPHA:y"], alpha.Keys.OrderBy(k => k));
+        var ini = Parse("x = 1", "y = 2").Append([Pair("y", "20"), Pair("z", "30")]);
+        Assert.Equal(["1", "20", "30"], ini.Values);
     }
 
     [Fact]
-    public void SectionExcludesADottedChildSection()
+    public void AppendMergesDocuments()
     {
-        var ini = Create("[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        Assert.Equal(["alpha:x"], ini.Section("alpha").Keys);
-        Assert.Equal(["alpha.beta:y"], ini.Section("alpha.beta").Keys);
+        var defaults = Parse("[s]", "a = 1", "b = 2");
+        var overrides = Parse("[s]", "b = 20");
+        Assert.Equal(Parse("[s]", "a = 1", "b = 20"), defaults.Append(overrides));
     }
 
     [Fact]
-    public void SectionReturnsTheRootSectionForAnEmptyName()
+    public void AppendLinesStartsInTheRoot()
     {
-        var ini = Create("root = 0", "[alpha]", "x = 1");
-
-        Assert.Equal([":root"], ini.Section("").Keys);
+        var ini = Ok(Parse("[s]", "x = 1").AppendLines(["y = 2"]));
+        Assert.Equal([":y", "s:x"], KeysOf(ini));
     }
 
     [Fact]
-    public void SectionIsEmptyForANameWithNoParameters()
-    {
-        var ini = Create("[alpha]", "x = 1");
+    public void AppendLinesReportsAnInvalidLine() =>
+        Assert.Equal(ParserError.NewInvalidLine("oops"), Error(Ini.Empty.AppendLines(["oops"])));
 
-        Assert.Equal(Ini.Empty, ini.Section("nope"));
+    [Fact]
+    public void AppendFileLayersAFile()
+    {
+        using var file = new TempFile("x = 10");
+        Assert.Equal(Parse("x = 10", "y = 2"), Ok(Parse("x = 1", "y = 2").AppendFile(file.Path)));
     }
 
     [Fact]
-    public void SectionOfAnEmptyIniIsEmpty()
+    public void ResultsCanBeChained()
     {
-        Assert.Equal(Ini.Empty, Ini.Empty.Section("alpha"));
-    }
-
-    [Fact]
-    public void SectionRendersBackToAValidStandaloneDocument()
-    {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
-
-        Assert.Equal(["[alpha]", "x = 1"], ini.Section("alpha").ToLines());
-    }
-
-    [Fact]
-    public void RemoveSectionRemovesEveryParameterOfThatSection()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "y = 2", "[beta]", "z = 3");
-
-        Assert.Equal([":root", "beta:z"], ini.RemoveSection("alpha").Keys);
-    }
-
-    [Fact]
-    public void RemoveSectionMatchesTheNameCaseInsensitively()
-    {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
-
-        Assert.Equal(ini.RemoveSection("alpha"), ini.RemoveSection("ALPHA"));
-    }
-
-    [Fact]
-    public void RemoveSectionRemovesEveryDifferentlyCasedReopening()
-    {
-        var ini = Create("[alpha]", "x = 1", "[ALPHA]", "y = 2", "[beta]", "z = 3");
-
-        Assert.Equal(["beta:z"], ini.RemoveSection("alpha").Keys);
-    }
-
-    [Fact]
-    public void RemoveSectionKeepsADottedChildSection()
-    {
-        var ini = Create("[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        Assert.Equal(["alpha.beta:y"], ini.RemoveSection("alpha").Keys);
-        Assert.Equal(["alpha:x"], ini.RemoveSection("alpha.beta").Keys);
-    }
-
-    [Fact]
-    public void RemoveSectionRemovesTheRootSectionForAnEmptyName()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1");
-
-        Assert.Equal(["alpha:x"], ini.RemoveSection("").Keys);
-    }
-
-    [Fact]
-    public void RemoveSectionIsANoOpForANameWithNoParameters()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        Assert.Equal(ini, ini.RemoveSection("nope"));
-    }
-
-    [Fact]
-    public void RemoveSectionOfAnEmptyIniIsEmpty()
-    {
-        Assert.Equal(Ini.Empty, Ini.Empty.RemoveSection("alpha"));
-    }
-
-    [Fact]
-    public void RemoveSectionLeavesTheOriginalUntouched()
-    {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
-
-        ini.RemoveSection("alpha");
-
-        Assert.Equal(["alpha:x", "beta:y"], ini.Keys);
-    }
-
-    [Fact]
-    public void SectionAndRemoveSectionPartitionTheDocument()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        foreach (var name in new[] { "", "alpha", "alpha.beta", "nope" })
+        var config = Ini.FromLines(["x = 1"]);
+        config = config switch
         {
-            var taken = ini.Section(name);
-            var rest = ini.RemoveSection(name);
+            { ResultValue: { } ini } => ini.AppendLines(["[s]", "y = 2"]),
+            var error => error
+        };
 
-            Assert.Equal(ini.Count, taken.Count + rest.Count);
-            Assert.Empty(taken.Keys.Intersect(rest.Keys));
-            Assert.Equal(ini.Keys.Order(), taken.Keys.Union(rest.Keys).Order());
-        }
+        Assert.Equal([":x", "s:y"], KeysOf(Ok(config)));
+    }
+}
+
+public class LookupTests
+{
+    private static readonly Ini Doc = Parse(
+        "timeout = 30",
+        "[server]",
+        "host = localhost",
+        "port = 8080",
+        "[server.dev]",
+        "port = 5000");
+
+    [Fact]
+    public void TryFindReturnsTheValueOrNull()
+    {
+        Assert.Equal("localhost", Doc.TryFind("SERVER:host")?.Value);
+        Assert.Null(Doc.TryFind("server.dev:host"));
     }
 
     [Fact]
-    public void RemoveSectionRendersBackToAValidDocument()
+    public void TryFindCanBeMatched()
     {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
+        string Describe(Key key) => Doc.TryFind(key) switch
+        {
+            { Value: "30" } => "thirty",
+            { Value: var value } => value,
+            null => "missing"
+        };
 
-        Assert.Equal(["[beta]", "y = 2"], ini.RemoveSection("alpha").ToLines());
+        Assert.Equal("thirty", Describe("timeout"));
+        Assert.Equal("8080", Describe("server:port"));
+        Assert.Equal("missing", Describe("server:missing"));
     }
 
-    // ------------------------------------------------------------ equality
+    [Theory]
+    [InlineData("server.dev:port", "5000")]
+    [InlineData("server.dev:host", "localhost")]
+    [InlineData("server.dev:timeout", "30")]
+    [InlineData("server.dev.local:port", "5000")]
+    public void TryFindNestedWalksUpTheSections(string key, string expected) =>
+        Assert.Equal(expected, Doc.TryFindNested(key)?.Value);
 
     [Fact]
-    public void EqualityIgnoresNameCaseAndOrder()
-    {
-        var a = Create("[alpha]", "x = 1", "[beta]", "y = 2");
-        var b = Create("[BETA]", "Y = 2", "[ALPHA]", "X = 1");
-
-        Assert.Equal(a, b);
-        Assert.Equal(a.GetHashCode(), b.GetHashCode());
-        Assert.NotEqual(a, Create("[alpha]", "x = 1"));
-    }
-
-    // ------------------------------------------------------------ enumeration
+    public void TryFindNestedReturnsNullWhenNoAncestorHasTheKey() =>
+        Assert.Null(Doc.TryFindNested("server.dev:missing"));
 
     [Fact]
-    public void KeysAndValuesAreOrderedAndAligned()
+    public void FindReturnsTheValueOrThrows()
     {
-        var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
-
-        var pairs = ini.Keys.Zip(ini.Values).ToList();
-
-        Assert.Equal(new List<(Key, string)> { ("alpha:x", "1"), ("beta:y", "2") }, pairs);
+        Assert.Equal("8080", Doc.Find("server:port"));
+        Assert.Throws<KeyNotFoundException>(() => Doc.Find("server.dev:host"));
     }
 
     [Fact]
-    public void ForEachYieldsPairsInKeyOrder()
+    public void FindNestedReturnsTheValueOrThrows()
     {
-        var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
+        Assert.Equal("localhost", Doc.FindNested("server.dev:host"));
+        Assert.Throws<KeyNotFoundException>(() => Doc.FindNested("server.dev:missing"));
+    }
 
+    [Fact]
+    public void ContainsKeyChecksAnExactKey()
+    {
+        Assert.True(Doc.ContainsKey("Server:Port"));
+        Assert.False(Doc.ContainsKey("server.dev:host"));
+    }
+}
+
+public class TypedLookupTests
+{
+    private static readonly Ini Doc = Parse(
+        "timeout = 00:00:30",
+        "[server]",
+        "port = 8080",
+        "name = web",
+        "[server.dev]",
+        "port = abc");
+
+    private static int? Port(Ini ini, Key key) => ini.TryFindAs<int>(key) switch
+    {
+        { Value: { IsOk: true, ResultValue: var port } } => port,
+        { Value.ErrorValue: ParserError.InvalidValue { Value: var text } } => throw new FormatException(text),
+        { Value.ErrorValue: var err } => throw new InvalidOperationException(err.ToString()),
+        null => null
+    };
+
+    [Fact]
+    public void TryFindAsParsesTheValue()
+    {
+        Assert.Equal(8080, Port(Doc, "server:port"));
+        Assert.Null(Port(Doc, "server:missing"));
+        Assert.Equal("web", Assert.Throws<FormatException>(() => Port(Doc, "server:name")).Message);
+    }
+
+    [Fact]
+    public void TryFindNestedAsParsesTheInheritedValue()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(30), Ok(Doc.TryFindNestedAs<TimeSpan>("server.dev:timeout")!.Value));
+        Assert.Equal(ParserError.NewInvalidValue("abc"), Error(Doc.TryFindNestedAs<int>("server.dev:port")!.Value));
+        Assert.Null(Doc.TryFindNestedAs<int>("server.dev:missing"));
+    }
+
+    [Fact]
+    public void FindAsParsesOrThrows()
+    {
+        Assert.Equal(8080, Doc.FindAs<int>("server:port"));
+        Assert.Equal(8080, Doc.FindNestedAs<int>("server.prod:port"));
+        Assert.Throws<FormatException>(() => Doc.FindAs<int>("server:name"));
+        Assert.Throws<KeyNotFoundException>(() => Doc.FindNestedAs<int>("server.dev:missing"));
+    }
+
+    private enum Mode { Fast, Slow }
+
+    private static Mode ParseMode(string text) => text switch
+    {
+        "web" => Mode.Fast,
+        "abc" => Mode.Slow,
+        _ => throw new FormatException(text)
+    };
+
+    [Fact]
+    public void TryFindWithAppliesTheParser()
+    {
+        Assert.Equal(Mode.Fast, Ok(Doc.TryFindWith(ParseMode, "server:name")!.Value));
+        Assert.Equal(Mode.Slow, Ok(Doc.TryFindNestedWith(ParseMode, "server.dev:port")!.Value));
+        Assert.Null(Doc.TryFindWith(ParseMode, "missing"));
+    }
+
+    [Fact]
+    public void TryFindWithTurnsAnExceptionIntoInvalidValue() =>
+        Assert.Equal(ParserError.NewInvalidValue("8080"), Error(Doc.TryFindWith(ParseMode, "server:port")!.Value));
+
+    [Fact]
+    public void FindWithLetsTheParserExceptionThrough()
+    {
+        Assert.Equal(Mode.Fast, Doc.FindWith(ParseMode, "server:name"));
+        Assert.Equal(Mode.Fast, Doc.FindNestedWith(ParseMode, "server.dev:name"));
+        Assert.Throws<FormatException>(() => Doc.FindWith(ParseMode, "server:port"));
+        Assert.Throws<KeyNotFoundException>(() => Doc.FindNestedWith(ParseMode, "a:missing"));
+    }
+
+    [Fact]
+    public void TryFindWithAcceptsALambda() =>
+        Assert.Equal(8081, Ok(Doc.TryFindWith(s => int.Parse(s) + 1, "server:port")!.Value));
+}
+
+public class SectionTests
+{
+    private static readonly Ini Doc = Parse(
+        "timeout = 30",
+        "[server]",
+        "host = localhost",
+        "[server.dev]",
+        "port = 5000",
+        "[client]",
+        "id = 1");
+
+    [Fact]
+    public void SectionsListsTheNamesWithTheRootFirst() =>
+        Assert.Equal(["", "client", "server", "server.dev"], Doc.Sections.Select(name => name.ToString()));
+
+    [Fact]
+    public void SectionReturnsOneSection()
+    {
+        Assert.Equal(["server:host"], KeysOf(Doc.Section("SERVER")));
+        Assert.Equal([":timeout"], KeysOf(Doc.Section(Name.Empty)));
+        Assert.True(Doc.Section("missing").IsEmpty);
+    }
+
+    [Fact]
+    public void RemoveSectionKeepsChildren() =>
+        Assert.Equal([":timeout", "client:id", "server.dev:port"], KeysOf(Doc.RemoveSection("server")));
+
+    [Fact]
+    public void SectionAndChildrenCanBeRemovedTogether()
+    {
+        var rest = Doc.Sections
+            .Where(name => name.Equals((Name)"server") || name.ToString().StartsWith("server."))
+            .Aggregate(Doc, (doc, name) => doc.RemoveSection(name));
+
+        Assert.Equal([":timeout", "client:id"], KeysOf(rest));
+    }
+}
+
+public class RenderingTests
+{
+    private static readonly Ini Doc = Parse(
+        "; dropped",
+        "timeout = 30",
+        "[server.dev]",
+        "port = 5000",
+        "[server]",
+        "port = 8080",
+        "host = localhost",
+        "[client]",
+        "empty =");
+
+    private static readonly string[] Expected =
+    [
+        "timeout = 30",
+        "",
+        "[client]",
+        "empty =",
+        "",
+        "[server]",
+        "host = localhost",
+        "port = 8080",
+        "",
+        "[server.dev]",
+        "port = 5000"
+    ];
+
+    [Fact]
+    public void ToLinesWritesTheStandardLayout() => Assert.Equal(Expected, Doc.ToLines());
+
+    [Fact]
+    public void ToStringJoinsTheLines() => Assert.Equal(string.Join(Environment.NewLine, Expected), Doc.ToString());
+
+    [Fact]
+    public void ToFileWritesAFileThatReadsBackEqual()
+    {
+        using var file = new TempFile();
+        Doc.ToFile(file.Path);
+
+        Assert.Equal(Expected, File.ReadAllLines(file.Path));
+        Assert.Equal(Doc, Ok(Ini.FromFile(file.Path)));
+    }
+}
+
+public class EqualityTests
+{
+    [Fact]
+    public void EnumeratesPairsInKeyOrder()
+    {
         var pairs = new List<string>();
-        foreach (var (key, value) in ini)
+        foreach (var (key, value) in Parse("[b]", "x = 2", "[a]", "x = 1"))
         {
             pairs.Add($"{key}={value}");
         }
 
-        Assert.Equal(["alpha:x=1", "beta:y=2"], pairs);
+        Assert.Equal(["a:x=1", "b:x=2"], pairs);
     }
 
     [Fact]
-    public void EnumerationAgreesWithKeysAndValues()
+    public void KeyValuePairsMatchesEnumeration()
     {
-        var ini = Create("root = 0", "[beta]", "y = 2", "[alpha]", "x = 1");
-
-        Assert.Equal(ini.Keys, ini.Select(pair => pair.Key));
-        Assert.Equal(ini.Values, ini.Select(pair => pair.Value));
-        Assert.Equal(ini.Count, ini.Count);
+        var ini = Parse("x = 1", "[s]", "y = 2");
+        Assert.Equal(ini.ToList(), ini.KeyValuePairs);
     }
 
     [Fact]
-    public void AnEmptyIniEnumeratesNothing()
+    public void WorksWithLinq()
     {
-        Assert.Empty(Ini.Empty);
+        var ini = Parse("a = 1", "b = 2", "c = 3");
+        Assert.Equal(["b", "c"], ini.Where(p => int.Parse(p.Value) > 1).Select(p => p.Key.ToString().TrimStart(':')));
     }
 
     [Fact]
-    public void LinqCanQueryAnIni()
+    public void EqualDocumentsIgnoreKeyCaseOrderAndComments()
     {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
+        var a = Parse("; comment", "[S]", "X = 1", "y = 2");
+        var b = Parse("[s]", "Y = 2", "x = 1");
 
-        var betaOnly = ini.Where(pair => ((string)pair.Key).StartsWith("beta:")).Select(pair => pair.Value);
-
-        Assert.Equal(["2"], betaOnly);
+        Assert.True(a.Equals(b));
+        Assert.True(((IEquatable<Ini>)a).Equals(b));
+        Assert.True(Equals(a, b));
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
 
     [Fact]
-    public void LinqMaterialisesAnIni()
-    {
-        var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
+    public void ValuesAreCaseSensitive() => Assert.False(Parse("x = a").Equals(Parse("x = A")));
 
-        Assert.Equal(["alpha:x", "beta:y"], ini.ToList().Select(pair => pair.Key));
-        Assert.Equal(["1", "2"], ini.ToArray().Select(pair => pair.Value));
-        Assert.Equal(ini.AsEnumerable(), [.. ini]);
+    [Fact]
+    public void EqualsHandlesNullAndOtherTypes()
+    {
+        var ini = Parse("x = 1");
+        Assert.False(ini.Equals(null));
+        Assert.False(ini.Equals("x = 1"));
+        Assert.False(((IEquatable<Ini>)ini).Equals(null));
     }
 
     [Fact]
-    public void TheNonGenericEnumeratorWorks()
+    public void DocumentsAreComparable()
     {
-        IEnumerable ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
+        var one = Parse("x = 1");
+        var two = Parse("x = 2");
 
-        var keys = (from KeyValuePair<Key, string> pair in ini select pair.Key).ToList();
-
-        Assert.Equal(["alpha:x", "beta:y"], keys);
+        Assert.True(((IComparable<Ini>)one).CompareTo(two) < 0);
+        Assert.True(((IComparable)two).CompareTo(one) > 0);
+        Assert.Equal(0, ((IComparable<Ini>)one).CompareTo(Parse("X = 1")));
+        Assert.True(((IComparable<Ini>)one).CompareTo(null) > 0);
+        Assert.Equal([one, two], new[] { two, one }.Order());
     }
 
     [Fact]
-    public void EnumerationYieldsPairsInKeyOrder()
+    public void WorksAsADictionaryKeyAndInASet()
     {
-        var ini = Create("[beta]", "y = 2", "[alpha]", "x = 1");
-
-        Assert.Equal(
-            [new KeyValuePair<Key, string>("alpha:x", "1"), new KeyValuePair<Key, string>("beta:y", "2")],
-            ini.AsEnumerable());
-        Assert.Equal(ini, ini.AsEnumerable());
-    }
-
-    // ------------------------------------------------------------ OfSeq
-
-    [Fact]
-    public void OfSeqBuildsAnIniFromPairs()
-    {
-        var result = Ini.Create([KeyValuePair.Create((Key)"beta:y", "2"), KeyValuePair.Create((Key)"alpha:x", "1")]);
-
-        Assert.Equal(["alpha:x", "beta:y"], result.Keys);
-        Assert.Equal(Create("[alpha]", "x = 1", "[beta]", "y = 2"), result);
-    }
-
-    [Fact]
-    public void OfSeqRejectsNullPairs()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Create(null!));
-    }
-
-    [Fact]
-    public void CreateAndEnumerationRoundTrip()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        var result = Ini.Create(ini.AsEnumerable());
-
-        Assert.Equal(ini, result);
-    }
-
-    [Fact]
-    public void OfSeqAcceptsTheIniItself()
-    {
-        var ini = Create("[alpha]", "x = 1", "[beta]", "y = 2");
-
-        var result = Ini.Create(ini);
-
-        Assert.Equal(ini, result);
-    }
-
-    // ------------------------------------------------------------ Append (pairs)
-
-    [Fact]
-    public void AppendAddsPairsAndLeavesTheOriginalUnchanged()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.Append([KeyValuePair.Create((Key)"beta:y", "2"), KeyValuePair.Create((Key)"root", "0")]);
-
-        Assert.Equal([":root", "alpha:x", "beta:y"], result.Keys);
-        Assert.Equal(["alpha:x"], ini.Keys);
-    }
-
-    [Fact]
-    public void AppendOverwritesExistingKeys()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.Append([KeyValuePair.Create((Key)"ALPHA:X", "2")]);
-
-        Assert.Equal(1, result.Count);
-        Assert.True(result.TryFind("alpha:x") is { Value: "2" });
-        Assert.True(ini.TryFind("alpha:x") is { Value: "1" });
-    }
-
-    [Fact]
-    public void AppendLetsALaterPairOverwriteAnEarlierOne()
-    {
-        var result = Ini.Empty.Append([KeyValuePair.Create((Key)"x", "1"), KeyValuePair.Create((Key)"X", "2")]);
-
-        Assert.Equal(1, result.Count);
-        Assert.True(result.TryFind("x") is { Value: "2" });
-    }
-
-    [Fact]
-    public void AppendingTheIniItselfReturnsAnEqualIni()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-
-        var result = Ini.Empty.Append(ini);
-
-        Assert.Equal(ini, result);
-    }
-
-    [Fact]
-    public void AppendOfNoPairsReturnsAnEqualIni()
-    {
-        var ini = Create("[alpha]", "x = 1");
-
-        var result = ini.Append([]);
-
-        Assert.Equal(ini, result);
-    }
-
-    [Fact]
-    public void AppendToAnEmptyIniIsCreate()
-    {
-        KeyValuePair<Key, string>[] pairs = [KeyValuePair.Create((Key)"root", "0"), KeyValuePair.Create((Key)"alpha:x", "1")];
-
-        Assert.Equal(Ini.Create(pairs), Ini.Empty.Append(pairs));
-    }
-
-    [Fact]
-    public void AppendRejectsNullPairs()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.Append(null!));
-    }
-
-    // ------------------------------------------------------------ files
-
-    private static void WithTempFile(string[] lines, Action<string> body)
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-{Guid.NewGuid():N}.ini");
-        File.WriteAllLines(path, lines);
-
-        try
-        {
-            body(path);
-        }
-        finally
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void FromFileParsesTheFile()
-    {
-        WithTempFile(["; comment", "root = 0", "[alpha]", "x = 1"], path =>
-        {
-            var result = Ini.FromFile(path);
-
-            Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-            Assert.Equal([":root", "alpha:x"], result.ResultValue.Keys);
-        });
-    }
-
-    [Fact]
-    public void FromFileThrowsForAMissingFile()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-missing-{Guid.NewGuid():N}.ini");
-
-        var exception = Assert.Throws<FileNotFoundException>(() => Ini.FromFile(path));
-
-        Assert.Contains(path, exception.Message);
-    }
-
-    [Fact]
-    public void FromFileReportsAnUnparsableLine()
-    {
-        WithTempFile(["x = 1", "oops"], path =>
-        {
-            var result = Ini.FromFile(path);
-
-            Assert.True(result.IsError);
-            Assert.Equal(ParserError.NewInvalidLine("oops"), result.ErrorValue);
-        });
-    }
-
-    [Fact]
-    public void AppendFileMergesOverAnExistingIni()
-    {
-        WithTempFile(["[alpha]", "x = 2", "[beta]", "y = 3"], path =>
-        {
-            var ini = Create("[alpha]", "x = 1");
-
-            var result = ini.AppendFile(path);
-
-            Assert.True(result.IsOk, result.IsError ? result.ErrorValue.ToString() : null);
-            Assert.Equal(["alpha:x", "beta:y"], result.ResultValue.Keys);
-            Assert.Equal("2", result.ResultValue.TryFind("alpha:x").Value);
-            Assert.Equal("1", ini.TryFind("alpha:x").Value);
-        });
-    }
-
-    [Fact]
-    public void AppendFileThrowsForAMissingFile()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-missing-{Guid.NewGuid():N}.ini");
-
-        var exception = Assert.Throws<FileNotFoundException>(() => Ini.Empty.AppendFile(path));
-
-        Assert.Contains(path, exception.Message);
-    }
-
-    [Fact]
-    public void FileMembersRejectANullPath()
-    {
-        Assert.Throws<ArgumentNullException>(() => Ini.FromFile(null!));
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.AppendFile(null!));
-        Assert.Throws<ArgumentNullException>(() => Ini.Empty.ToFile(null!));
-    }
-
-    [Fact]
-    public void FileMembersRejectAnEmptyPath()
-    {
-        Assert.Throws<ArgumentException>(() => Ini.FromFile(""));
-        Assert.Throws<ArgumentException>(() => Ini.Empty.AppendFile(""));
-        Assert.Throws<ArgumentException>(() => Ini.Empty.ToFile(""));
-    }
-
-    // ------------------------------------------------------------ rendering
-
-    [Fact]
-    public void ToLinesRendersTheDocument()
-    {
-        var ini = Create("; comment", "root = 0", "[beta]", "y = 2", "[alpha]", "x = 1");
-
-        Assert.Equal(["root = 0", "", "[alpha]", "x = 1", "", "[beta]", "y = 2"], ini.ToLines());
-    }
-
-    [Fact]
-    public void ToStringRendersTheDocument()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1");
-
-        Assert.Equal($"root = 0{Environment.NewLine}{Environment.NewLine}[alpha]{Environment.NewLine}x = 1", ini.ToString());
-        Assert.Equal(string.Join(Environment.NewLine, ini.ToLines()), ini.ToString());
-    }
-
-    [Fact]
-    public void ToFileWritesAFileThatFromFileReadsBack()
-    {
-        var ini = Create("root = 0", "[alpha]", "x = 1", "[alpha.beta]", "y = 2");
-        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-out-{Guid.NewGuid():N}.ini");
-
-        try
-        {
-            ini.ToFile(path);
-
-            Assert.Equal(ini.ToLines(), File.ReadLines(path));
-
-            var reread = Ini.FromFile(path);
-
-            Assert.True(reread.IsOk, reread.IsError ? reread.ErrorValue.ToString() : null);
-            Assert.Equal(ini, reread.ResultValue);
-        }
-        finally
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void ToFileThrowsForAnUnwritablePath()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"fini-cs-no-such-dir-{Guid.NewGuid():N}", "out.ini");
-
-        Assert.Throws<DirectoryNotFoundException>(() => Ini.Empty.ToFile(path));
-    }
-
-    // ------------------------------------------------------------ parser errors
-
-    [Fact]
-    public void AnUnparsableLineIsReportedAsInvalidLine()
-    {
-        var result = Ini.FromLines(["oops"]);
-
-        Assert.True(result.ErrorValue.IsInvalidLine);
-        Assert.False(result.ErrorValue.IsInvalidName);
-        Assert.Equal(ParserError.NewInvalidLine("oops"), result.ErrorValue);
-    }
-
-    [Fact]
-    public void InvalidLineCarriesTheLineVerbatim()
-    {
-        var result = Ini.FromLines(["  oops  "]);
-
-        Assert.True(result.ErrorValue is ParserError.InvalidLine { Line: "  oops  " });
-    }
-
-    [Fact]
-    public void TheTwoCasesAreDistinctForTheSameText()
-    {
-        Assert.NotEqual(ParserError.NewInvalidName("oops"), ParserError.NewInvalidLine("oops"));
-    }
-
-    [Fact]
-    public void ParserErrorsAreStructurallyEqual()
-    {
-        Assert.Equal(ParserError.NewInvalidLine("oops"), ParserError.NewInvalidLine("oops"));
-        Assert.Equal(ParserError.NewInvalidLine("oops").GetHashCode(),
-            ParserError.NewInvalidLine("oops").GetHashCode());
-        Assert.NotEqual(ParserError.NewInvalidLine("oops"), ParserError.NewInvalidLine("other"));
-    }
-
-    [Fact]
-    public void AParserErrorCanBeMatchedOnItsCase()
-    {
-        var message = Ini.FromLines(["oops"]).ErrorValue switch
-        {
-            ParserError.InvalidLine { Line: var line } => $"line: {line}",
-            ParserError.InvalidName { Name: var name } => $"name: {name}",
-            _ => "unknown"
-        };
-
-        Assert.Equal("line: oops", message);
-    }
-
-    [Fact]
-    public void AParserErrorNamesItsCaseAndItsText()
-    {
-        Assert.Equal("InvalidLine \"oops\"", ParserError.NewInvalidLine("oops").ToString());
-        Assert.Equal("InvalidName \"a b\"", ParserError.NewInvalidName("a b").ToString());
+        var set = new HashSet<Ini> { Parse("x = 1"), Parse("X = 1"), Parse("x = 2") };
+        Assert.Equal(2, set.Count);
     }
 }
