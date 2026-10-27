@@ -111,6 +111,12 @@ type Key =
     /// <param name="key">The key.</param>
     static member op_Implicit: key: Key -> string
 
+    /// <summary>The section name of the key. <see cref="P:Fini.Name.Empty"/> means the root section.</summary>
+    member Section: Name
+
+    /// <summary>The parameter name of the key.</summary>
+    member Parameter: Name
+
     /// <summary>Returns the key as <c>section:parameter</c>, or <c>:parameter</c> in the root section.</summary>
     override ToString: unit -> string
 
@@ -145,6 +151,14 @@ module Key =
     /// <returns>The key.</returns>
     /// <exception cref="T:System.ArgumentException">The key is invalid.</exception>
     val parse: key: string -> Key
+
+    /// <summary>The section name of a key. <see cref="P:Fini.Name.Empty"/> means the root section.</summary>
+    /// <param name="key">The key.</param>
+    val section: key: Key -> Name
+
+    /// <summary>The parameter name of a key.</summary>
+    /// <param name="key">The key.</param>
+    val parameter: key: Key -> Name
 
 /// <summary>An immutable INI document: a flat, sorted map from keys to values.</summary>
 /// <remarks>

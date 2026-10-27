@@ -90,6 +90,15 @@ module NameTests =
     let ``a name keeps its original spelling`` () = Assert.Equal("Server", Name.get "Server" |> string)
 
     [<Fact>]
+    let ``a name converts via a true implicit conversion, not just op_Implicit`` () =
+#nowarn "3391"
+        let fromString: Name = "server"
+        let toString: string = fromString
+#warnon "3391"
+        Assert.Equal("server", toString)
+        Assert.Equal(Name.get "server", fromString)
+
+    [<Fact>]
     let ``the root name sorts first`` () =
         let sorted = [ name "b"; Name.empty; name "A" ] |> List.sort |> List.map string
         Assert.Equal<string list>([ ""; "A"; "b" ], sorted)
@@ -177,11 +186,39 @@ module KeyTests =
     [<Fact>]
     let ``a key keeps its original spelling`` () = Assert.Equal("Server:Host", key "Server:Host" |> string)
 
+    // ---------------------------------------------------------------- section and parameter
+
+    [<Fact>]
+    let ``Section and Parameter expose the parts of a key`` () =
+        let k = key "server:host"
+        Assert.Equal(name "server", k.Section)
+        Assert.Equal(name "host", k.Parameter)
+
+    [<Fact>]
+    let ``Section is the root name for a key without a section`` () =
+        Assert.Equal(Name.empty, (key "host").Section)
+        Assert.Equal(name "host", (key "host").Parameter)
+
+    [<Fact>]
+    let ``Key.section and Key.parameter match the members`` () =
+        let k = key "server:host"
+        Assert.Equal(k.Section, Key.section k)
+        Assert.Equal(k.Parameter, Key.parameter k)
+
     [<Fact>]
     let ``a key converts implicitly from and to a string`` () =
         let fromString: Key = Key.op_Implicit "server:host"
         let toString: string = Key.op_Implicit fromString
         Assert.Equal("server:host", toString)
+
+    [<Fact>]
+    let ``a key converts via a true implicit conversion, not just op_Implicit`` () =
+#nowarn "3391"
+        let fromString: Key = "server:host"
+        let toString: string = fromString
+#warnon "3391"
+        Assert.Equal("server:host", toString)
+        Assert.Equal(Key.parse "server:host", fromString)
 
 module ParsingTests =
 

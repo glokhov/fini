@@ -147,6 +147,23 @@ string? port = ini.TryFind(key)?.Value;
 string? host = ini.TryFind("server:host")?.Value; // implicit conversion
 ```
 
+A `Key` exposes its two parts as `Section` and `Parameter`, both `Name` values. A key without a section, like
+`host`, has `Section` equal to `Name.empty`.
+
+```fsharp
+let k = Key.parse "server:host"
+k.Section          // Name.get "server"
+k.Parameter        // Name.get "host"
+Key.section k      // Name.get "server" — equivalent module function
+Key.parameter k    // Name.get "host"
+```
+
+```csharp
+Key k = "server:host";
+Name section = k.Section;     // "server"
+Name parameter = k.Parameter; // "host"
+```
+
 Root keys are always written with the colon, so `keys` and enumeration give `:timeout`, not `timeout`.
 
 ## Lookups return an option
@@ -546,6 +563,8 @@ In C#, `==` on `Ini`, `Key` or `Name` compares references, not values. Use `Equa
 | `Key.Parse key`              | `Key.parse key`           | `Key`                      |
 | `Key.TryGet(section, name)`  | `Key.tryGet section name` | `Result<Key, ParserError>` |
 | `Key.Get(section, name)`     | `Key.get section name`    | `Key`                      |
+| `key.Section`                | `Key.section key`         | `Name`                     |
+| `key.Parameter`              | `Key.parameter key`       | `Name`                     |
 | `Name.Empty`                 | `Name.empty`              | `Name`                     |
 | `Name.TryGet name`           | `Name.tryGet name`        | `Result<Name, ParserError>`|
 | `Name.Get name`              | `Name.get name`           | `Name`                     |

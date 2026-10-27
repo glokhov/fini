@@ -142,10 +142,10 @@ module Name =
 [<CustomComparison; CustomEquality>]
 type Key =
     private
-        { Section: Name
-          Parameter: Name }
+        { section: Name
+          parameter: Name }
 
-    static let create section parameter = { Section = section; Parameter = parameter }
+    static let create section parameter = { section = section; parameter = parameter }
 
     static member TryGet(sectionName, parameterName) =
         if parameterName = Empty then
@@ -176,9 +176,13 @@ type Key =
 
     static member op_Implicit(key: Key) = key.ToString()
 
+    member k.Section = k.section
+
+    member k.Parameter = k.parameter
+
     member k.CompareTo other =
-        match k.Section.CompareTo other.Section with
-        | 0 -> k.Parameter.CompareTo other.Parameter
+        match k.section.CompareTo other.section with
+        | 0 -> k.parameter.CompareTo other.parameter
         | result -> result
 
     interface IComparable with
@@ -189,15 +193,15 @@ type Key =
 
     override k.Equals obj =
         match obj with
-        | :? Key as other -> k.Section.Equals other.Section && k.Parameter.Equals other.Parameter
+        | :? Key as other -> k.section.Equals other.section && k.parameter.Equals other.parameter
         | _ -> false
 
     override k.GetHashCode() =
-        let first = k.Section.GetHashCode()
-        let second = k.Parameter.GetHashCode()
+        let first = k.section.GetHashCode()
+        let second = k.parameter.GetHashCode()
         ((first <<< 5) + first) ^^^ second
 
-    override k.ToString() = k.Section.Name + ":" + k.Parameter.Name
+    override k.ToString() = k.section.Name + ":" + k.parameter.Name
 
 [<RequireQualifiedAccess>]
 module Key =
@@ -208,6 +212,10 @@ module Key =
     let tryParse key = Key.TryParse key
 
     let parse key = Key.Parse key
+
+    let section key = key.section
+
+    let parameter key = key.parameter
 
 [<RequireQualifiedAccess>]
 module Map =
@@ -283,7 +291,7 @@ module Map =
                     | Comment -> loop section map
                     | Section { Name = name } -> loop name map
                     | Parameter { Key = key; Value = value } ->
-                        loop section (Map.add { Section = { Name = section }; Parameter = { Name = key } } value map)
+                        loop section (Map.add { section = { Name = section }; parameter = { Name = key } } value map)
 
         loop Empty map
 
@@ -299,7 +307,7 @@ module Map =
 
     let tryFindNested key map =
         let rec loop section =
-            match Map.tryFind { key with Section = section } map with
+            match Map.tryFind { key with section = section } map with
             | Some value -> Some value
             | None ->
                 match section with
@@ -309,7 +317,7 @@ module Map =
                     | -1 -> loop { Name = Empty }
                     | index -> loop { Name = section.Name[.. index - 1] }
 
-        loop key.Section
+        loop key.section
 
 #if NET
     let tryFindNestedAs key map = map |> tryFindNested key <?> tryParseAs
@@ -344,10 +352,10 @@ module Map =
 
     let values map = map |> Map.values :> string seq
 
-    let sections map = map |> Seq.map key |> Seq.map _.Section |> Seq.distinct
+    let sections map = map |> Seq.map key |> Seq.map _.section |> Seq.distinct
 
     let sectionWith sign (section: Name) map =
-        Map.filter (fun key _ -> key.Section.Equals section |> sign) map
+        Map.filter (fun key _ -> key.section.Equals section |> sign) map
 
     let section = sectionWith id
 
@@ -359,7 +367,7 @@ module Map =
             let mutable section = Name.empty
 
             for pair in map do
-                let name = pair.Key.Section
+                let name = pair.Key.section
 
                 if name <> Name.empty && name.Equals(section) |> not then
                     section <- name
@@ -371,9 +379,9 @@ module Map =
 
                 yield
                     if pair.Value = Empty then
-                        $"{pair.Key.Parameter} ="
+                        $"{pair.Key.parameter} ="
                     else
-                        $"{pair.Key.Parameter} = {pair.Value}"
+                        $"{pair.Key.parameter} = {pair.Value}"
 
                 written <- true
         }

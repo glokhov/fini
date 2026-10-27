@@ -10,29 +10,34 @@ namespace Fini.CSharp.Tests;
 
 internal static class Helpers
 {
-    /// <summary>Parses lines into a document, failing the test on an error.</summary>
-    public static Ini Parse(params string[] lines) => Ok(Ini.FromLines(lines));
+    public static Ini Parse(params string[] lines)
+    {
+        return Ok(Ini.FromLines(lines));
+    }
 
-    /// <summary>Unwraps Ok, failing the test on Error.</summary>
     public static T Ok<T>(FSharpResult<T, ParserError> result)
     {
         Assert.True(result.IsOk, $"expected Ok, got {result.ErrorValue}");
         return result.ResultValue;
     }
 
-    /// <summary>Unwraps Error, failing the test on Ok.</summary>
     public static ParserError Error<T>(FSharpResult<T, ParserError> result)
     {
         Assert.True(result.IsError, $"expected Error, got {result.ResultValue}");
         return result.ErrorValue;
     }
 
-    public static string[] KeysOf(Ini ini) => ini.Keys.Select(key => key.ToString()).ToArray();
+    public static string[] KeysOf(Ini ini)
+    {
+        return ini.Keys.Select(key => key.ToString()).ToArray();
+    }
 
-    public static KeyValuePair<Key, string> Pair(Key key, string value) => new(key, value);
+    public static KeyValuePair<Key, string> Pair(Key key, string value)
+    {
+        return new KeyValuePair<Key, string>(key, value);
+    }
 }
 
-/// <summary>A temporary file that is deleted on dispose.</summary>
 internal sealed class TempFile : IDisposable
 {
     public TempFile(params string[] lines)
@@ -64,7 +69,10 @@ public class NameTests
     }
 
     [Fact]
-    public void EmptyStringIsTheRoot() => Assert.Equal(Name.Empty, Name.Get(""));
+    public void EmptyStringIsTheRoot()
+    {
+        Assert.Equal(Name.Empty, Name.Get(""));
+    }
 
     [Theory]
     [InlineData("a b")]
@@ -175,6 +183,22 @@ public class KeyTests
         Key[] keys = ["b:a", "a:z", "z", "a:b"];
         Assert.Equal([":z", "a:b", "a:z", "b:a"], keys.Order().Select(k => k.ToString()));
     }
+
+    [Fact]
+    public void SectionAndParameterExposeTheParts()
+    {
+        Key key = "server:host";
+        Assert.Equal((Name)"server", key.Section);
+        Assert.Equal((Name)"host", key.Parameter);
+    }
+
+    [Fact]
+    public void SectionIsTheRootNameForAKeyWithoutASection()
+    {
+        Key key = "host";
+        Assert.Equal(Name.Empty, key.Section);
+        Assert.Equal((Name)"host", key.Parameter);
+    }
 }
 
 public class ParsingTests
@@ -192,15 +216,19 @@ public class ParsingTests
     [InlineData("x = a = b", "a = b")]
     [InlineData("x =", "")]
     [InlineData("  x  =  1  ", "1")]
-    public void ValueIsEverythingAfterTheFirstEqualsSign(string line, string expected) =>
+    public void ValueIsEverythingAfterTheFirstEqualsSign(string line, string expected)
+    {
         Assert.Equal(expected, Parse(line).Find("x"));
+    }
 
     [Theory]
     [InlineData("oops")]
     [InlineData("[a b]")]
     [InlineData("a:b = 1")]
-    public void InvalidLineIsReported(string line) =>
+    public void InvalidLineIsReported(string line)
+    {
         Assert.Equal(ParserError.NewInvalidLine(line), Error(Ini.FromLines(["x = 1", line])));
+    }
 
     [Fact]
     public void ResultCanBeMatched()
@@ -223,8 +251,10 @@ public class ParsingTests
     }
 
     [Fact]
-    public void MissingFileThrows() =>
+    public void MissingFileThrows()
+    {
         Assert.Throws<FileNotFoundException>(() => Ini.FromFile(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())));
+    }
 }
 
 public class BuildingTests
@@ -294,8 +324,10 @@ public class BuildingTests
     }
 
     [Fact]
-    public void AppendLinesReportsAnInvalidLine() =>
+    public void AppendLinesReportsAnInvalidLine()
+    {
         Assert.Equal(ParserError.NewInvalidLine("oops"), Error(Ini.Empty.AppendLines(["oops"])));
+    }
 
     [Fact]
     public void AppendFileLayersAFile()
@@ -308,6 +340,7 @@ public class BuildingTests
     public void ResultsCanBeChained()
     {
         var config = Ini.FromLines(["x = 1"]);
+        
         config = config switch
         {
             { ResultValue: { } ini } => ini.AppendLines(["[s]", "y = 2"]),
@@ -338,12 +371,15 @@ public class LookupTests
     [Fact]
     public void TryFindCanBeMatched()
     {
-        string Describe(Key key) => Doc.TryFind(key) switch
+        string Describe(Key key)
         {
-            { Value: "30" } => "thirty",
-            { Value: var value } => value,
-            null => "missing"
-        };
+            return Doc.TryFind(key) switch
+            {
+                { Value: "30" } => "thirty",
+                { Value: var value } => value,
+                null => "missing"
+            };
+        }
 
         Assert.Equal("thirty", Describe("timeout"));
         Assert.Equal("8080", Describe("server:port"));
@@ -355,12 +391,16 @@ public class LookupTests
     [InlineData("server.dev:host", "localhost")]
     [InlineData("server.dev:timeout", "30")]
     [InlineData("server.dev.local:port", "5000")]
-    public void TryFindNestedWalksUpTheSections(string key, string expected) =>
+    public void TryFindNestedWalksUpTheSections(string key, string expected)
+    {
         Assert.Equal(expected, Doc.TryFindNested(key)?.Value);
+    }
 
     [Fact]
-    public void TryFindNestedReturnsNullWhenNoAncestorHasTheKey() =>
+    public void TryFindNestedReturnsNullWhenNoAncestorHasTheKey()
+    {
         Assert.Null(Doc.TryFindNested("server.dev:missing"));
+    }
 
     [Fact]
     public void FindReturnsTheValueOrThrows()
@@ -394,13 +434,16 @@ public class TypedLookupTests
         "[server.dev]",
         "port = abc");
 
-    private static int? Port(Ini ini, Key key) => ini.TryFindAs<int>(key) switch
+    private static int? Port(Ini ini, Key key)
     {
-        { Value: { IsOk: true, ResultValue: var port } } => port,
-        { Value.ErrorValue: ParserError.InvalidValue { Value: var text } } => throw new FormatException(text),
-        { Value.ErrorValue: var err } => throw new InvalidOperationException(err.ToString()),
-        null => null
-    };
+        return ini.TryFindAs<int>(key) switch
+        {
+            { Value: { IsOk: true, ResultValue: var port } } => port,
+            { Value.ErrorValue: ParserError.InvalidValue { Value: var text } } => throw new FormatException(text),
+            { Value.ErrorValue: var err } => throw new InvalidOperationException(err.ToString()),
+            null => null
+        };
+    }
 
     [Fact]
     public void TryFindAsParsesTheValue()
@@ -429,12 +472,15 @@ public class TypedLookupTests
 
     private enum Mode { Fast, Slow }
 
-    private static Mode ParseMode(string text) => text switch
+    private static Mode ParseMode(string text)
     {
-        "web" => Mode.Fast,
-        "abc" => Mode.Slow,
-        _ => throw new FormatException(text)
-    };
+        return text switch
+        {
+            "web" => Mode.Fast,
+            "abc" => Mode.Slow,
+            _ => throw new FormatException(text)
+        };
+    }
 
     [Fact]
     public void TryFindWithAppliesTheParser()
@@ -445,8 +491,10 @@ public class TypedLookupTests
     }
 
     [Fact]
-    public void TryFindWithTurnsAnExceptionIntoInvalidValue() =>
+    public void TryFindWithTurnsAnExceptionIntoInvalidValue()
+    {
         Assert.Equal(ParserError.NewInvalidValue("8080"), Error(Doc.TryFindWith(ParseMode, "server:port")!.Value));
+    }
 
     [Fact]
     public void FindWithLetsTheParserExceptionThrough()
@@ -458,8 +506,10 @@ public class TypedLookupTests
     }
 
     [Fact]
-    public void TryFindWithAcceptsALambda() =>
+    public void TryFindWithAcceptsALambda()
+    {
         Assert.Equal(8081, Ok(Doc.TryFindWith(s => int.Parse(s) + 1, "server:port")!.Value));
+    }
 }
 
 public class SectionTests
@@ -474,8 +524,10 @@ public class SectionTests
         "id = 1");
 
     [Fact]
-    public void SectionsListsTheNamesWithTheRootFirst() =>
+    public void SectionsListsTheNamesWithTheRootFirst()
+    {
         Assert.Equal(["", "client", "server", "server.dev"], Doc.Sections.Select(name => name.ToString()));
+    }
 
     [Fact]
     public void SectionReturnsOneSection()
@@ -486,8 +538,10 @@ public class SectionTests
     }
 
     [Fact]
-    public void RemoveSectionKeepsChildren() =>
+    public void RemoveSectionKeepsChildren()
+    {
         Assert.Equal([":timeout", "client:id", "server.dev:port"], KeysOf(Doc.RemoveSection("server")));
+    }
 
     [Fact]
     public void SectionAndChildrenCanBeRemovedTogether()
@@ -529,10 +583,16 @@ public class RenderingTests
     ];
 
     [Fact]
-    public void ToLinesWritesTheStandardLayout() => Assert.Equal(Expected, Doc.ToLines());
+    public void ToLinesWritesTheStandardLayout()
+    {
+        Assert.Equal(Expected, Doc.ToLines());
+    }
 
     [Fact]
-    public void ToStringJoinsTheLines() => Assert.Equal(string.Join(Environment.NewLine, Expected), Doc.ToString());
+    public void ToStringJoinsTheLines()
+    {
+        Assert.Equal(string.Join(Environment.NewLine, Expected), Doc.ToString());
+    }
 
     [Fact]
     public void ToFileWritesAFileThatReadsBackEqual()
@@ -586,13 +646,17 @@ public class EqualityTests
     }
 
     [Fact]
-    public void ValuesAreCaseSensitive() => Assert.False(Parse("x = a").Equals(Parse("x = A")));
+    public void ValuesAreCaseSensitive()
+    {
+        Assert.False(Parse("x = a").Equals(Parse("x = A")));
+    }
 
     [Fact]
     public void EqualsHandlesNullAndOtherTypes()
     {
         var ini = Parse("x = 1");
         Assert.False(ini.Equals(null));
+        // ReSharper disable once SuspiciousTypeConversion.Global
         Assert.False(ini.Equals("x = 1"));
         Assert.False(((IEquatable<Ini>)ini).Equals(null));
     }
