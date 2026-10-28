@@ -6,6 +6,11 @@
 
 A simple INI parser written in F#, usable from F# and C# alike.
 
+> [!WARNING]
+> Version 0.4.0 changes how keys work compared to version 0.3.0. `Key` is now its own type, built from a
+> `Name` for the section and a `Name` for the parameter, instead of a plain `string`. `add` / `Add` no longer fail since a `Key` is always valid.
+> The typed lookups `…Value<T>` are renamed to `…As<T>`. Code written against version 0.3.0 will need to be updated.
+
 Documents are **immutable**: any operation that changes a document returns a new one instead. Two documents are
 equal if they have the same keys and values. The structure is flat: each value is stored under one `Key`, made of
 a section name and a parameter name and written `section:parameter`.

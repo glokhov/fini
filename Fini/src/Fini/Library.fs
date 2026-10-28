@@ -25,7 +25,7 @@ module KeyValuePair =
 
     let inline value (kvp: KeyValuePair<_, _>) = kvp.Value
 
-    let inline deconstruct pair = (key pair, value pair)
+    let inline deconstruct pair = key pair, value pair
 
 [<AutoOpen>]
 module Enumerator =
@@ -63,7 +63,7 @@ module Parser =
     let nameRegex = Regex(@"^([^=:;#\s\[\]]+)\z", RegexOptions.Compiled)
 
     let inline (|ParseRegex|_|) (regex: Regex) input =
-        match regex.Match(input) with
+        match regex.Match input with
         | m when m.Success -> List.tail [ for g in m.Groups -> g.Value ] |> ValueSome
         | _ -> ValueNone
 
@@ -109,12 +109,7 @@ type Name =
 
     static member op_Implicit(name: Name) = name.ToString()
 
-    member s.CompareTo other =
-        match s.Name, other.Name with
-        | Empty, Empty -> 0
-        | Empty, _ -> -1
-        | _, Empty -> 1
-        | _ -> comparer.Compare(s.Name, other.Name)
+    member s.CompareTo other = comparer.Compare(s.Name, other.Name)
 
     interface IComparable with
         member m.CompareTo obj =
@@ -369,7 +364,7 @@ module Map =
             for pair in map do
                 let name = pair.Key.section
 
-                if name <> Name.empty && name.Equals(section) |> not then
+                if name <> Name.empty && name.Equals section |> not then
                     section <- name
 
                     if written then
